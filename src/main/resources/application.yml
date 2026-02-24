@@ -1,0 +1,60 @@
+spring:
+  application:
+   name:AI_Agent
+  profiles:
+    active: local
+  datasource:
+    url: jdbc:mysql://localhost:3306/ai_agent?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+server:
+    port: 8123
+    servlet:
+     context-path: /api
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  configuration:
+    # 开启驼峰命名转换（数据库字段下划线 -> Java 属性驼峰）
+    map-underscore-to-camel-case: true
+    # 使用标准输出日志打印 SQL 语句（开发环境使用）
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      # 表名前缀（如果所有表都有统一前缀可以配置）
+      table-prefix: ""
+  # 实体类包路径，用于类型别名
+  type-aliases-package: com.qh.ai_agent.entity
+
+# springdoc-openapi 接口文档配置
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+  group-configs:
+    - group: 'default'
+      paths-to-match: '/**'
+      packages-to-scan: com.qh.ai_agent.controller
+# knife4j的增强配置，不需要增强可以不配
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+# AI Agent 配置
+ai:
+  # 违禁词列表，使用逗号、分号或空格分隔
+  banned-words: 垃圾,暴力,色情,黄色
+
+# 对话记忆配置
+chat:
+  memory:
+    # 存储类型: mysql 或 file
+    type: mysql
+    # 文件存储目录（当 type=file 时使用）
+    file-dir: ./chat-memory
+
