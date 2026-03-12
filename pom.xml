@@ -93,6 +93,12 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Spring AI markdown 读取依赖-->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-markdown-document-reader</artifactId>
+            <version>1.0.0-M6</version>
+        </dependency>
         <!-- MyBatis-Plus 依赖 (支持 Spring Boot 3.x) -->
         <dependency>
             <groupId>com.baomidou</groupId>

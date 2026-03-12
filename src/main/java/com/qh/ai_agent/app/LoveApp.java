@@ -9,9 +9,11 @@ import com.qh.ai_agent.advisor.ReReadingAdvisor;
 import com.qh.ai_agent.chatmemory.FileBasedChatMemory;
 import com.qh.ai_agent.service.BannedWordService;
 import com.qh.ai_agent.service.PromptTemplateService;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
@@ -20,6 +22,7 @@ import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.PromptTemplate;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.boot.autoconfigure.rsocket.RSocketProperties;
 import org.springframework.stereotype.Component;
 
@@ -128,14 +131,49 @@ AI 恋爱报告功能，实战结构化输出
                 .user(message)
                 .advisors(spec -> spec
                         .param("chat_memory_conversation_id", chatId)
+                        .param("chat_memory_retrieve_size_key",10)
                 )
                 .call()
                 .entity(LoveReport.class);
         log.info("loveReport:{}",loveReport);
         return loveReport;
+
     }
 
     /*
-
+        AI 恋爱知识库问答功能
      */
+    @Resource
+    private VectorStore lovaAppVectorStore;
+
+
+    /**
+     *  和RAG 知识库进行对话
+     * @param message
+     * @param chatId
+     * @return
+     */
+    public String doChatWithRag(String message,String chatId){
+     ChatResponse chatResponse = chatClient
+            .prompt()
+            .user(message)
+            .advisors(spec -> spec
+                    .param("chat_memory_conversation_id", chatId)
+                    .param("chat_memory_retrieve_size_key",10)
+                    // 开启日志
+                    .advisors(
+                            new My_loggerAdvisor(79),
+                    //应用RAG 知识库问答
+                            new QuestionAnswerAdvisor(lovaAppVectorStore)
+                    )
+            )
+                    .call()
+                    .chatResponse();
+        String content = chatResponse.getResult().getOutput().getText();
+        log.info("content:{}",content);
+        return content;
+
+    }
+
+
 }
