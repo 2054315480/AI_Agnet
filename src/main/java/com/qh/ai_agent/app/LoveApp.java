@@ -23,6 +23,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.boot.autoconfigure.rsocket.RSocketProperties;
 import org.springframework.stereotype.Component;
 
@@ -146,6 +147,8 @@ AI 恋爱报告功能，实战结构化输出
     @Resource
     private VectorStore lovaAppVectorStore;
 
+    @Resource
+    private Advisor loveAppRagCloudAdvisor;
 
     /**
      *  和RAG 知识库进行对话
@@ -154,21 +157,28 @@ AI 恋爱报告功能，实战结构化输出
      * @return
      */
     public String doChatWithRag(String message,String chatId){
-     ChatResponse chatResponse = chatClient
-            .prompt()
-            .user(message)
-            .advisors(spec -> spec
-                    .param("chat_memory_conversation_id", chatId)
-                    .param("chat_memory_retrieve_size_key",10)
-                    // 开启日志
-                    .advisors(
-                            new My_loggerAdvisor(79),
-                    //应用RAG 知识库问答
-                            new QuestionAnswerAdvisor(lovaAppVectorStore)
-                    )
-            )
-                    .call()
-                    .chatResponse();
+        // 修改系统提示词，让 AI 更重视知识库内容
+        String ragSystemPrompt = loadSystemPrompt() + 
+                "\n\n重要提示：当用户询问恋爱、婚姻相关问题时，如果知识库中有相关专业建议，" +
+                "请优先参考并引用知识库内容。可以在回答中提及「根据专业建议」或「课程推荐」等。";
+        
+        ChatResponse chatResponse = chatClient
+                .prompt()
+                .system(ragSystemPrompt)  // 使用强化的系统提示词
+                .user(message)
+                .advisors(spec -> spec
+                        .param("chat_memory_conversation_id", chatId)
+                        .param("chat_memory_retrieve_size_key",10)
+                        // 开启日志
+                        .advisors(
+                                new My_loggerAdvisor(79),
+                                new QuestionAnswerAdvisor(lovaAppVectorStore)  // 使用最简单的构造函数
+                        )
+                )
+                // 应用RAG 检索增强服务
+                // .advisors(loveAppRagCloudAdvisor)
+                .call()
+                .chatResponse();
         String content = chatResponse.getResult().getOutput().getText();
         log.info("content:{}",content);
         return content;
