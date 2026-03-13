@@ -13,7 +13,8 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
-import org.springframework.ai.chat.client.advisor.QuestionAnswerAdvisor;
+import org.springframework.ai.rag.advisor.RetrievalAugmentationAdvisor;
+import org.springframework.ai.rag.retrieval.search.VectorStoreDocumentRetriever;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
@@ -145,7 +146,7 @@ AI 恋爱报告功能，实战结构化输出
         AI 恋爱知识库问答功能
      */
     @Resource
-    private VectorStore lovaAppVectorStore;
+    private VectorStore loveAppVectorStore;
 
     @Resource
     private Advisor loveAppRagCloudAdvisor;
@@ -157,10 +158,15 @@ AI 恋爱报告功能，实战结构化输出
      * @return
      */
     public String doChatWithRag(String message,String chatId){
-        // 修改系统提示词，让 AI 更重视知识库内容
+        // 强化系统提示词，明确要求使用知识库
         String ragSystemPrompt = loadSystemPrompt() + 
-                "\n\n重要提示：当用户询问恋爱、婚姻相关问题时，如果知识库中有相关专业建议，" +
-                "请优先参考并引用知识库内容。可以在回答中提及「根据专业建议」或「课程推荐」等。";
+                "\n\n## 知识库使用规则\n" +
+                "1. 当回答用户问题时，你会收到来自专业知识库的相关内容\n" +
+                "2. **必须严格基于知识库内容回答**，这是专业恋爱咨询的核心资料\n" +
+                "3. 如果知识库中包含具体案例（如老陈、老张、老王、老李、老孙等），**必须在回答中引用**\n" +
+                "4. 如果知识库中推荐了课程链接（包含gitee.com的链接），**必须在回答末尾完整保留**\n" +
+                "5. 在回答开头或适当位置使用「根据专业建议」「课程推荐」等标识\n" +
+                "6. 知识库内容与通用知识冲突时，**以知识库为准**";
         
         ChatResponse chatResponse = chatClient
                 .prompt()
@@ -169,20 +175,74 @@ AI 恋爱报告功能，实战结构化输出
                 .advisors(spec -> spec
                         .param("chat_memory_conversation_id", chatId)
                         .param("chat_memory_retrieve_size_key",10)
-                        // 开启日志
+                        // 开启日志和RAG检索
                         .advisors(
                                 new My_loggerAdvisor(79),
-                                new QuestionAnswerAdvisor(lovaAppVectorStore)  // 使用最简单的构造函数
+                                RetrievalAugmentationAdvisor.builder()
+                                        .documentRetriever(new VectorStoreDocumentRetriever(
+                                                loveAppVectorStore,
+                                                0.3,   // 最小相似度阈值（0~1），可按需要调整
+                                                6,     // topK 返回文档数
+                                                () -> null // 不使用过滤条件
+                                        ))
+                                        .build()
                         )
                 )
-                // 应用RAG 检索增强服务
-                // .advisors(loveAppRagCloudAdvisor)
                 .call()
                 .chatResponse();
         String content = chatResponse.getResult().getOutput().getText();
         log.info("content:{}",content);
         return content;
 
+    }
+
+
+    /**
+     * 使用阿里云百炼平台「恋爱大师」云知识库进行 RAG 对话
+     * 说明：
+     * - 顾问链采用 cloud retriever：loveAppRagCloudAdvisor（见 LoveAppRagCloudAdvisorConfig）
+     * - 系统提示词中明确要求严格依据知识库内容作答，并在必要时引用课程链接/案例名称
+     * - 仍保留对话记忆参数，以便结合上下文进行跟进问答
+     */
+    public String doChatWithCloudRag(String message, String chatId) {
+        log.info("doChatWithCloudRag 调用 - chatId: {}, message: {}", chatId, message);
+        if (chatId == null || chatId.trim().isEmpty()) {
+            throw new IllegalArgumentException("chatId 不能为空");
+        }
+
+        String cloudRagSystemPrompt = loadSystemPrompt() +
+                "\n\n## 云知识库使用规则（阿里云·恋爱大师）\n" +
+                "1. 你将接收来自云端知识库的检索内容，必须严格基于其回答\n" +
+                "2. 若知识库包含具体案例（如老陈、老张、老王、老李、老孙），需要在回答中引用\n" +
+                "3. 若知识库给出课程链接，需在回答末尾完整保留\n" +
+                "4. 当云知识库与常识冲突时，以云知识库为准\n" +
+                "5. 优先生成结构化、可执行的建议清单\n" +
+                "6. 直接回答用户问题，禁止寒暄、禁止反问用户、禁止要求用户先提供更多信息\n" +
+                "7. 若检索到的知识库内容不足以回答，明确回复“我不知道该问题的答案”，并建议用户换个问法；不可编造\n" +
+                "8. 输出格式严格如下：\n" +
+                "   - 标题：一句话结论\n" +
+                "   - 要点清单：3~6条可执行步骤（使用- 列表），必要时在条目中引用案例名\n" +
+                "   - 参考：如存在课程链接或案例来源，完整给出链接\n";
+
+        ChatResponse chatResponse = chatClient
+                .prompt()
+                .system(cloudRagSystemPrompt)
+                .user(message)
+                .advisors(spec -> spec
+                        .param("chat_memory_conversation_id", chatId)
+                        .param("chat_memory_retrieve_size_key", 10)
+                        .advisors(
+                                new My_loggerAdvisor(89),
+                                // 使用云端 RAG 顾问（阿里云百炼平台·恋爱大师索引）
+                                loveAppRagCloudAdvisor
+                        )
+                )
+                .call()
+                .chatResponse();
+
+        String content = chatResponse.getResult().getOutput().getText();
+        log.info("cloud rag content:{}", content);
+        return content;
     }
 
 
