@@ -7,12 +7,15 @@ import com.qh.ai_agent.advisor.My_loggerAdvisor;
 import com.qh.ai_agent.advisor.PermissionAdvisor;
 import com.qh.ai_agent.advisor.ReReadingAdvisor;
 import com.qh.ai_agent.chatmemory.FileBasedChatMemory;
+import com.qh.ai_agent.rag.LoveAppRagCustomAdvisorFactory;
+import com.qh.ai_agent.rag.QueryReweiter;
 import com.qh.ai_agent.service.BannedWordService;
 import com.qh.ai_agent.service.PromptTemplateService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.QuestionAnswerAdvisor;
 import org.springframework.ai.rag.advisor.RetrievalAugmentationAdvisor;
 import org.springframework.ai.rag.retrieval.search.VectorStoreDocumentRetriever;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
@@ -31,6 +34,9 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Set;
 
+
+
+
 @Component
 @Slf4j
 public class LoveApp {
@@ -45,6 +51,9 @@ public class LoveApp {
     private String loadSystemPrompt() {
         return promptTemplateService.loadTemplate(LOVE_ADVISOR_TEMPLATE).render();
     }
+
+    @Resource
+    private QueryReweiter queryReweiter;
 
     /*
      初始化 AI 客户端
@@ -88,8 +97,11 @@ public class LoveApp {
     AI 基础对话，支持多轮对话
      */
     public String doChat (String message,String chatId){
+        //使用查询重写器
+        String rewrittenMessage = queryReweiter.doQueryReweiter(message);
+
         // 添加参数校验和调试日志
-        log.info("doChat 调用 - chatId: {}, message: {}", chatId, message);
+        log.info("doChat 调用 - chatId: {}, message: {}", chatId, rewrittenMessage);
         if (chatId == null || chatId.trim().isEmpty()) {
             throw new IllegalArgumentException("chatId 不能为空");
         }
@@ -97,7 +109,8 @@ public class LoveApp {
         ChatResponse chatResponse =
         chatClient
                 .prompt()
-                .user(message)
+                // 使用改写后的查询
+                .user(rewrittenMessage)
                 .advisors(spec -> spec
                 .param("chat_memory_conversation_id", chatId)
                 )
@@ -151,6 +164,9 @@ AI 恋爱报告功能，实战结构化输出
     @Resource
     private Advisor loveAppRagCloudAdvisor;
 
+    @Resource
+    private VectorStore pgvectorVectorStore;
+
     /**
      *  和RAG 知识库进行对话
      * @param message
@@ -167,11 +183,12 @@ AI 恋爱报告功能，实战结构化输出
                 "4. 如果知识库中推荐了课程链接（包含gitee.com的链接），**必须在回答末尾完整保留**\n" +
                 "5. 在回答开头或适当位置使用「根据专业建议」「课程推荐」等标识\n" +
                 "6. 知识库内容与通用知识冲突时，**以知识库为准**";
-        
+        String rewrittenMessage = queryReweiter.doQueryReweiter(message);
+
         ChatResponse chatResponse = chatClient
                 .prompt()
                 .system(ragSystemPrompt)  // 使用强化的系统提示词
-                .user(message)
+                .user(rewrittenMessage)
                 .advisors(spec -> spec
                         .param("chat_memory_conversation_id", chatId)
                         .param("chat_memory_retrieve_size_key",10)
@@ -245,5 +262,90 @@ AI 恋爱报告功能，实战结构化输出
         return content;
     }
 
+    /**
+     *
+     *使用RAG检索增强服务，基于PGvector 向量存储
+     */
+    public String doChatWithPGSQL(String message, String chatId) {
+        log.info("doChatWithPGSQL 调用 - chatId: {}, message: {}", chatId, message);
+        if (chatId == null || chatId.trim().isEmpty()) {
+            throw new IllegalArgumentException("chatId 不能为空");
+        }
+
+        String localRagSystemPrompt = loadSystemPrompt() +
+                "\n\n## 本地向量库使用规则\n" +
+                "1. 你将接收来自本地向量知识库的检索内容，必须严格基于其回答\n" +
+                "2. 若知识库包含具体案例（如老陈、老张、老王、老李、老孙），需要在回答中引用\n" +
+                "3. 当知识库内容与常识冲突时，以知识库为准\n" +
+                "4. 优先生成结构化、可执行的建议清单\n" +
+                "5. 直接回答用户问题，禁止寒暄、禁止反问用户、禁止要求用户先提供更多信息\n" +
+                "6. 若检索到的知识库内容不足以回答，明确回复\"我不知道该问题的答案\"，并建议用户换个问法；不可编造\n" +
+                "7. **绝对禁止编造链接！** 由于检索结果中可能不包含课程链接，如果检索到的文档片段中没有明确提到完整的课程链接（如 https://... 开头的URL），则不要输出\"参考：\"部分。只输出标题和要点清单即可。\n" +
+                "8. 输出格式：\n" +
+                "   - 标题：一句话结论\n" +
+                "   - 要点清单：3~6条可执行步骤（使用- 列表），必要时在条目中引用案例名\n";
+
+        ChatResponse chatResponse = chatClient
+                .prompt()
+                .system(localRagSystemPrompt)
+                .user(message)
+                .advisors(spec -> spec
+                        .param("chat_memory_conversation_id", chatId)
+                        .param("chat_memory_retrieve_size_key", 10)
+                        .advisors(
+                                new QuestionAnswerAdvisor(pgvectorVectorStore)
+                        )
+                )
+                .call()
+                .chatResponse();
+
+        String content = chatResponse.getResult().getOutput().getText();
+        log.info("local pgsql rag content:{}", content);
+        return content;
+    }
+
+
+    public String doChatWithFactory(String message, String chatId) {
+        log.info("doChatWithFactory 调用 - chatId: {}, message: {}", chatId, message);
+        if (chatId == null || chatId.trim().isEmpty()) {
+            throw new IllegalArgumentException("chatId 不能为空");
+        }
+
+        String cloudRagSystemPrompt = loadSystemPrompt() +
+                "1. 你将接收来自云端知识库的检索内容，必须严格基于其回答\n" +
+                "2. 若知识库包含具体案例（如老陈、老张、老王、老李、老孙），需要在回答中引用\n" +
+                "3. 若知识库给出课程链接，需在回答末尾完整保留\n" +
+                "4. 当云知识库与常识冲突时，以云知识库为准\n" +
+                "5. 优先生成结构化、可执行的建议清单\n" +
+                "6. 直接回答用户问题，禁止寒暄、禁止反问用户、禁止要求用户先提供更多信息\n" +
+                "7. 若检索到的知识库内容不足以回答，明确回复“我不知道该问题的答案”，并建议用户换个问法；不可编造\n" +
+                "8. 输出格式严格如下：\n" +
+                "   - 标题：一句话结论\n" +
+                "   - 要点清单：3~6条可执行步骤（使用- 列表），必要时在条目中引用案例名\n" +
+                "   - 参考：如存在课程链接或案例来源，完整给出链接\n";
+
+        ChatResponse chatResponse = chatClient
+                .prompt()
+                .system(cloudRagSystemPrompt)
+                .user(message)
+                .advisors(spec -> spec
+                        .param("chat_memory_conversation_id", chatId)
+                        .param("chat_memory_retrieve_size_key", 10)
+                        .advisors(
+                                new My_loggerAdvisor(89)
+                        )
+                        .advisors(
+                                LoveAppRagCustomAdvisorFactory.createLoveAppRagCustomAdvisor(
+                                        loveAppVectorStore,"单身"
+                                )
+                        )
+                )
+                .call()
+                .chatResponse();
+
+        String content = chatResponse.getResult().getOutput().getText();
+        log.info("local rag content:{}", content);
+        return content;
+    }
 
 }

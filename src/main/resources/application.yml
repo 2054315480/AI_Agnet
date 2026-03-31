@@ -2,16 +2,24 @@ spring:
   application:
    name:AI_Agent
   profiles:
-    active: local
-  datasource:
-    url: jdbc:mysql://localhost:3306/ai_agent?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-    username: root
-    password: 123456
-    driver-class-name: com.mysql.cj.jdbc.Driver
+   active: local
+  # datasource: (MySQL 已暂时禁用，改由 application-local.yml 的 PostgreSQL 配置生效)
+  #   url: jdbc:mysql://localhost:3306/ai_agent?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+  #   username: root
+  #   password: 123456
+  #   driver-class-name: com.mysql.cj.jdbc.Driver
+
 server:
     port: 8123
     servlet:
      context-path: /api
+
+     vectorstore:
+         pgvector:
+         index-type: HNSW
+         distance-type: COSINE_DISTANCE
+         dimensions: 1536
+         max-document-batch-size: 10000 # Optional: Maximum number of documents per batch
 
 # MyBatis-Plus 配置
 mybatis-plus:
@@ -54,7 +62,6 @@ ai:
 chat:
   memory:
     # 存储类型: mysql 或 file
-    type: mysql
+    type: file
     # 文件存储目录（当 type=file 时使用）
     file-dir: ./chat-memory
-
