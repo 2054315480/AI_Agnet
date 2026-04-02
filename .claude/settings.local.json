@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /b)",
+      "WebSearch",
+      "Bash(find:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(if exist \"D:\\\\AI_Agent\\\\tmp\\\\chat-memory\\\\default.kryo\" del \"D:\\\\AI_Agent\\\\tmp\\\\chat-memory\\\\default.kryo\")",
+      "Bash(echo.)",
+      "Bash(./mvnw clean compile:*)",
+      "Bash(xargs:*)",
+      "Bash(./mvnw test:*)",
+      "Bash(mysql:*)",
+      "Bash(mvn clean compile:*)",
+      "Bash(mvn test:*)",
+      "Bash(mvn clean test:*)",
+      "Bash(if not exist prompts mkdir prompts)",
+      "Bash(jar tf:*)",
+      "Bash(mvn compile:*)",
+      "Bash(psql:*)"
+    ]
+  }
+}
