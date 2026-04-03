@@ -26,6 +26,8 @@ import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.PromptTemplate;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbacks;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.boot.autoconfigure.rsocket.RSocketProperties;
@@ -348,4 +350,34 @@ AI 恋爱报告功能，实战结构化输出
         return content;
     }
 
+
+    // LoveApp 调用工具的能力
+    @Resource
+    private ToolCallback[] allTools;
+
+    public String doChatWithTools (String message,String chatId){
+        // 添加参数校验和调试日志
+        log.info("doChatWithReport 调用 - chatId: {}, message: {}", chatId, message);
+        if (chatId == null || chatId.trim().isEmpty()) {
+            throw new IllegalArgumentException("chatId 不能为空");
+        }
+
+         ChatResponse chatResponse= chatClient
+                .prompt()
+                .user(message)
+                .advisors(spec -> spec
+                        .param("chat_memory_conversation_id", chatId)
+                        .param("chat_memory_retrieve_size_key",10)
+                )
+                // 开启日志
+                .advisors(new My_loggerAdvisor(67))
+                .toolCallbacks(allTools)
+                .call()
+                //.entity(LoveReport.class);
+                .chatResponse();
+        String content = chatResponse.getResult().getOutput().getText();
+        log.info("content:{}",content);
+        return content;
+
+    }
 }

@@ -26,7 +26,7 @@ public class WebSearchToolTest {
     @Test
     public void testWebSearchWithParams() {
         // 测试带参数的搜索
-        String result = webSearchTool.webSearch("人工智能最新进展", 5, "oneWeek", true);
+        String result = webSearchTool.webSearchAdvanced("人工智能最新进展", 5, "oneWeek", true);
         System.out.println("带参数搜索结果:");
         System.out.println(result);
         System.out.println("\n" + "=".repeat(80) + "\n");
@@ -44,7 +44,7 @@ public class WebSearchToolTest {
     @Test
     public void testFreshnessSearch() {
         // 测试时间过滤搜索
-        String result = webSearchTool.webSearch("AI技术新闻", 10, "oneDay", true);
+        String result = webSearchTool.webSearchAdvanced("AI技术新闻", 10, "oneDay", true);
         System.out.println("最新搜索结果（一天内）:");
         System.out.println(result);
         System.out.println("\n" + "=".repeat(80) + "\n");

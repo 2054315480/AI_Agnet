@@ -18,7 +18,9 @@
       "Bash(if not exist prompts mkdir prompts)",
       "Bash(jar tf:*)",
       "Bash(mvn compile:*)",
-      "Bash(psql:*)"
+      "Bash(psql:*)",
+      "Bash(grep -h \"@Tool\" src/main/java/com/qh/ai_agent/tools/*.java)",
+      "Bash(mvn test-compile:*)"
     ]
   }
 }
