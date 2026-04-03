@@ -48,7 +48,7 @@ public class WebSearchTool {
     public String webSearch(
             @ToolParam(description = "搜索的关键词或问题") String query) {
 
-        return webSearch(query, DEFAULT_COUNT, DEFAULT_FRESHNESS, DEFAULT_SUMMARY);
+        return webSearchAdvanced(query, DEFAULT_COUNT, DEFAULT_FRESHNESS, DEFAULT_SUMMARY);
     }
 
     /**
@@ -61,7 +61,7 @@ public class WebSearchTool {
      * @return 搜索结果的格式化字符串
      */
     @Tool(description = "在互联网上搜索信息，支持自定义结果数量、时间范围和摘要选项")
-    public String webSearch(
+    public String webSearchAdvanced(
             @ToolParam(description = "搜索的关键词或问题") String query,
             @ToolParam(description = "返回的搜索结果数量（1-50）") Integer count,
             @ToolParam(description = "时间范围过滤（noLimit、oneDay、oneWeek、oneMonth、oneYear）") String freshness,
