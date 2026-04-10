@@ -1,7 +1,6 @@
 package com.qh.ai_agent.rag;
 
 
-import com.networknt.schema.Keyword;
 import jakarta.annotation.Resource;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.document.Document;
