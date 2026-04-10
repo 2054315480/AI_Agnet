@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: image-search-mcp-server
+  profiles:
+    active: sse
+  main:
+    web-application-type: none  # 禁用 Web 应用，使用 STDIO 模式
+
+# Pexels 图片搜索 API Key
+pexels:
+  api-key: API Key
+
+---
+# SSE 配置
+spring:
+  config:
+    activate:
+      on-profile: sse
+
+# STDIO 模式不需要 Web 服务器
+# server:
+#   port: 8123
+
+logging:
+  level:
+    root: INFO
+    org.springframework.ai.mcp: DEBUG
+    org.springframework.web: DEBUG

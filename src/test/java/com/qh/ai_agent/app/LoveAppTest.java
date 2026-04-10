@@ -2,6 +2,7 @@ package com.qh.ai_agent.app;
 
 import jakarta.annotation.Resource;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -107,4 +108,16 @@ class LoveAppTest {
             Assertions.assertNotNull(answer);
         }
 
+    @Test
+    void doChatWithMCP() {
+        String chatId = UUID.randomUUID().toString();
+        // 测试高德MCP
+ //       String message = "我对象在赣州市赣县区，请帮我在这附近5公里找一个约会地点";
+ //       String answer = loveApp.doChatWithMCP(message, chatId);
+ //       Assertions.assertNotNull(answer);
+        // 测试图片搜索MCP
+        String message2 = "帮我找几个星空的图片";
+        String answer2 = loveApp.doChatWithMCP(message2, chatId);
+        Assertions.assertNotNull(answer2);
+    }
 }

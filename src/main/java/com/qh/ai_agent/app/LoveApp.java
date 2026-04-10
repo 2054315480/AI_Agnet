@@ -15,7 +15,6 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
-import org.springframework.ai.chat.client.advisor.QuestionAnswerAdvisor;
 import org.springframework.ai.rag.advisor.RetrievalAugmentationAdvisor;
 import org.springframework.ai.rag.retrieval.search.VectorStoreDocumentRetriever;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
@@ -27,7 +26,8 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.boot.autoconfigure.rsocket.RSocketProperties;
@@ -295,7 +295,9 @@ AI 恋爱报告功能，实战结构化输出
                         .param("chat_memory_conversation_id", chatId)
                         .param("chat_memory_retrieve_size_key", 10)
                         .advisors(
-                                new QuestionAnswerAdvisor(pgvectorVectorStore)
+                                RetrievalAugmentationAdvisor.builder()
+                                        .documentRetriever(new VectorStoreDocumentRetriever(pgvectorVectorStore, 0.3, 6, () -> null))
+                                        .build()
                         )
                 )
                 .call()
@@ -380,4 +382,37 @@ AI 恋爱报告功能，实战结构化输出
         return content;
 
     }
+
+    /**
+     * AI 调用MCP服务
+     */
+    @Resource
+    private ToolCallbackProvider toolCallbackProvider;
+
+    public String doChatWithMCP (String message,String chatId){
+        ToolCallback[] mcpCallbacks = toolCallbackProvider.getToolCallbacks();
+        log.info("doChatWithMCP 调用 - chatId: {}, message: {}, MCP工具数量: {}", chatId, message, mcpCallbacks.length);
+        if (chatId == null || chatId.trim().isEmpty()) {
+            throw new IllegalArgumentException("chatId 不能为空");
+        }
+
+        ChatResponse chatResponse= chatClient
+                .prompt()
+                .system(loadSystemPrompt() + "\n\n## 重要规则\n当用户需要搜索图片时，跳过上述开场白和回复格式，直接调用searchImage工具为用户搜索图片，不要反问。")
+                .user(message)
+                .advisors(spec -> spec
+                        .param("chat_memory_conversation_id", chatId)
+                        .param("chat_memory_retrieve_size_key",10)
+                )
+                // 开启日志
+                .advisors(new My_loggerAdvisor(67))
+                .toolCallbacks(mcpCallbacks)
+                .call()
+                .chatResponse();
+        String content = chatResponse.getResult().getOutput().getText();
+        log.info("content:{}",content);
+        return content;
+
+    }
 }
+

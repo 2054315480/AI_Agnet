@@ -1,0 +1,22 @@
+# MCP 服务器配置 - 使用 stdio 模式（标准输入输出）
+spring:
+  ai:
+    mcp:
+      server:
+        type: sync           # 同步模式
+        stdio: true          # 使用标准输入输出进行MCP通信
+        # stdio: false      # 如果要使用SSE模式，设置为false并配置web端点
+
+# 注意：
+# 1. stdio: true - 这是MCP的标准传输方式，通过标准输入/输出进行通信
+# 2. stdio: false - 启用SSE/HTTP模式，但可能需要额外的配置和依赖
+# 3. 推荐先使用stdio模式，这是最稳定和广泛支持的方式
+
+# 日志配置
+logging:
+  level:
+    org.springframework.ai.mcp: DEBUG
+    org.springframework.ai: DEBUG
+    com.qh.imagesearchmcpserver: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
