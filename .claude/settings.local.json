@@ -60,7 +60,8 @@
       "Bash(mvn spring-boot:run)",
       "Bash(timeout:*)",
       "Bash(netstat -ano)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(git rm:*)"
     ]
   }
 }

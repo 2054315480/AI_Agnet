@@ -1,8 +1,11 @@
 package com.qh.ai_agent.controller;
 
 
+import com.qh.ai_agent.Agent.HeManus;
 import com.qh.ai_agent.app.LoveApp;
 import jakarta.annotation.Resource;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,6 +18,12 @@ import reactor.core.publisher.Flux;
 @RequestMapping("/ai")
 public class AiController {
 
+
+    @Resource
+    private ToolCallback[] allTools;
+
+    @Resource
+    private ChatModel dashscopeChatModel;
 
     @Resource
     private LoveApp loveApp;
@@ -89,6 +98,17 @@ public class AiController {
         return sseEmitter;
     }
 
+    /**
+     *  流式调用超级智能体
+     * @param message
+     * @return
+     */
+    @GetMapping("/manus/chat")
+    public SseEmitter doChatWithManus(String message) {
+        HeManus heManus = new HeManus(allTools,dashscopeChatModel);
 
+        return heManus.runStream(message);
+
+    }
 
 }
