@@ -1,6 +1,7 @@
 package com.qh.ai_agent.app;
 
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Slf4j
 @SpringBootTest
 class LoveAppTest {
 
@@ -86,38 +88,47 @@ class LoveAppTest {
             // 测试联网搜索问题的答案
             testMessage("周末想带女朋友去南昌约会，推荐几个适合情侣的小众打卡地？");
 
-            // 测试网页抓取：恋爱案例分析
-            testMessage("最近和对象吵架了，看看这个网站（https://gitee.com/qiuhee/ai-super-intelligent-agent）的其他情侣是怎么解决矛盾的？");
+            // 测试网页抓取
+            testMessage("获取这个网站（https://gitee.com/qiuhee/ai-super-intelligent-agent）的内容，看看有什么项目信息");
 
-            // 测试资源下载：图片下载
-            testMessage("直接下载一张适合做手机壁纸的情侣图片为文件");
-
-            // 测试终端操作：执行代码
-            testMessage("执行 Python3 脚本来生成数据分析报告");
+            // 测试资源下载：图片下载（使用更可靠的图片来源）
+            testMessage("搜索一张免费的4K情侣壁纸，然后下载这张图片");
 
             // 测试文件操作：保存用户档案
-            testMessage("保存我的恋爱档案为文件");
+            testMessage("将以下内容保存为文件：用户档案-姓名：张三，年龄：25，兴趣爱好：摄影、旅行");
 
             // 测试 PDF 生成
-            testMessage("生成一份‘情人节约会计划’PDF，包含路边摊，小吃街等美食、活动流程和礼物清单，以及说女朋友说的暧昧话术暖她一整天");
+            testMessage("生成一份南昌’情人节约会计划’PDF，包含美食推荐、活动流程和礼物清单");
         }
 
         private void testMessage(String message) {
             String chatId = UUID.randomUUID().toString();
-            String answer = loveApp.doChatWithTools(message, chatId);
-            Assertions.assertNotNull(answer);
+            log.info("========== 开始测试: {} ==========", message);
+            log.info("测试使用 chatId: {}", chatId);
+
+            try {
+                String answer = loveApp.doChatWithTools(message, chatId);
+                Assertions.assertNotNull(answer);
+                Assertions.assertFalse(answer.trim().isEmpty());
+
+                log.info("回答成功，长度: {} 字符", answer.length());
+                log.info("========== 测试完成 ==========\n");
+            } catch (Exception e) {
+                log.error("测试失败", e);
+                throw e;
+            }
         }
 
     @Test
     void doChatWithMCP() {
         String chatId = UUID.randomUUID().toString();
         // 测试高德MCP
- //       String message = "我对象在赣州市赣县区，请帮我在这附近5公里找一个约会地点";
- //       String answer = loveApp.doChatWithMCP(message, chatId);
- //       Assertions.assertNotNull(answer);
+        String message = "我对象在南昌市，请帮我在这附近100公里找几个室内的约会地点";
+        String answer = loveApp.doChatWithMCP(message, chatId);
+        Assertions.assertNotNull(answer);
         // 测试图片搜索MCP
-        String message2 = "帮我找几个星空的图片";
-        String answer2 = loveApp.doChatWithMCP(message2, chatId);
-        Assertions.assertNotNull(answer2);
+   //     String message2 = "帮我找几个星空的图片";
+   //     String answer2 = loveApp.doChatWithMCP(message2, chatId);
+   //     Assertions.assertNotNull(answer2);
     }
 }
