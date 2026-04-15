@@ -40,12 +40,17 @@ public class ResourceDownloadTool {
     /**
      * 连接超时时间（毫秒）
      */
-    private static final int CONNECT_TIMEOUT = 30000;
+    private static final int CONNECT_TIMEOUT = 15000;
 
     /**
      * 读取超时时间（毫秒）
      */
-    private static final int READ_TIMEOUT = 60000;
+    private static final int READ_TIMEOUT = 30000;
+
+    /**
+     * 最大重试次数
+     */
+    private static final int MAX_RETRY = 2;
 
     /**
      * 下载文件到默认目录
@@ -125,30 +130,68 @@ public class ResourceDownloadTool {
     public String fetchUrlContent(
             @ToolParam(description = "要获取内容的URL") String url) {
 
-        try {
-            if (StrUtil.isBlank(url)) {
-                return "URL不能为空";
-            }
-
-            log.info("获取URL内容: {}", url);
-
-            String content = HttpUtil.get(url, CONNECT_TIMEOUT);
-
-            if (content != null && !content.isEmpty()) {
-                // 限制返回内容长度，避免过长
-                if (content.length() > 10000) {
-                    content = content.substring(0, 10000) + "\n\n... (内容过长，已截断)";
-                }
-                return String.format("成功获取内容（长度: %d 字符）:\n\n%s",
-                        content.length(), content);
-            } else {
-                return "获取内容失败: 返回内容为空";
-            }
-
-        } catch (Exception e) {
-            log.error("获取URL内容异常", e);
-            return "获取内容失败: " + e.getMessage();
+        // 验证URL格式
+        if (StrUtil.isBlank(url)) {
+            return "URL不能为空";
         }
+
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            return "URL格式不正确，必须以 http:// 或 https:// 开头";
+        }
+
+        log.info("获取URL内容: {}", url);
+
+        // 重试机制
+        Exception lastException = null;
+        for (int attempt = 1; attempt <= MAX_RETRY; attempt++) {
+            try {
+                // 使用 HttpRequest 设置超时和重定向
+                HttpResponse response = HttpRequest.get(url)
+                        .timeout(CONNECT_TIMEOUT)
+                        .setFollowRedirects(true)
+                        .execute();
+
+                if (!response.isOk()) {
+                    throw new RuntimeException("HTTP状态码: " + response.getStatus());
+                }
+
+                String content = response.body();
+
+                if (content != null && !content.isEmpty()) {
+                    // 限制返回内容长度，避免过长
+                    if (content.length() > 10000) {
+                        content = content.substring(0, 10000) + "\n\n... (内容过长，已截断)";
+                    }
+                    log.info("成功获取URL内容，长度: {} 字符", content.length());
+                    return String.format("成功获取内容（长度: %d 字符）:\n\n%s",
+                            content.length(), content);
+                } else {
+                    return "获取内容失败: 返回内容为空";
+                }
+
+            } catch (Exception e) {
+                lastException = e;
+                log.warn("获取URL内容尝试 {}/{} 失败: {}", attempt, MAX_RETRY, e.getMessage());
+
+                // 如果不是最后一次尝试，等待一段时间后重试
+                if (attempt < MAX_RETRY) {
+                    try {
+                        Thread.sleep(1000 * attempt);  // 递增延迟
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 所有重试都失败
+        log.error("获取URL内容失败，已重试{}次", MAX_RETRY, lastException);
+        return String.format("获取内容失败: %s\n\n建议：\n" +
+                "1. 检查网络连接是否正常\n" +
+                "2. 确认URL是否有效\n" +
+                "3. 某些网站可能需要特殊网络环境或设置User-Agent",
+                lastException != null ? lastException.getMessage() : "未知错误");
     }
 
     /**
@@ -217,44 +260,84 @@ public class ResourceDownloadTool {
     public String downloadImage(
             @ToolParam(description = "图片URL") String imageUrl) {
 
-        try {
-            if (StrUtil.isBlank(imageUrl)) {
-                return "图片URL不能为空";
-            }
-
-            // 创建图片保存目录
-            File imageDir = new File(DOWNLOAD_DIR, "images");
-            if (!imageDir.exists()) {
-                imageDir.mkdirs();
-            }
-
-            log.info("开始下载图片: {}", imageUrl);
-
-            String fileName = getFileNameFromUrl(imageUrl);
-            File targetFile = new File(imageDir, fileName);
-
-            HttpUtil.downloadFile(imageUrl, targetFile);
-
-            if (targetFile.exists()) {
-                long fileSize = targetFile.length();
-                String fileSizeStr = formatFileSize(fileSize);
-
-                log.info("图片下载成功: {}, 大小: {}", targetFile.getAbsolutePath(), fileSizeStr);
-                return String.format("图片下载成功！\n" +
-                        "文件路径: %s\n" +
-                        "文件大小: %s\n" +
-                        "文件名: %s",
-                        targetFile.getAbsolutePath(),
-                        fileSizeStr,
-                        targetFile.getName());
-            } else {
-                return "图片下载失败";
-            }
-
-        } catch (Exception e) {
-            log.error("图片下载异常", e);
-            return "图片下载失败: " + e.getMessage();
+        // 验证URL格式
+        if (StrUtil.isBlank(imageUrl)) {
+            return "图片URL不能为空";
         }
+
+        if (!imageUrl.startsWith("http://") && !imageUrl.startsWith("https://")) {
+            return "图片URL格式不正确，必须以 http:// 或 https:// 开头";
+        }
+
+        // 创建图片保存目录
+        File imageDir = new File(DOWNLOAD_DIR, "images");
+        if (!imageDir.exists()) {
+            imageDir.mkdirs();
+        }
+
+        String fileName = getFileNameFromUrl(imageUrl);
+        File targetFile = new File(imageDir, fileName);
+
+        log.info("开始下载图片: {}", imageUrl);
+
+        // 重试机制
+        Exception lastException = null;
+        for (int attempt = 1; attempt <= MAX_RETRY; attempt++) {
+            try {
+                // 使用 HttpRequest 设置超时和代理
+                HttpRequest request = HttpRequest.get(imageUrl)
+                        .timeout(CONNECT_TIMEOUT)
+                        .setFollowRedirects(true);  // 跟随重定向
+
+                HttpResponse response = request.execute();
+
+                if (!response.isOk()) {
+                    throw new RuntimeException("HTTP状态码: " + response.getStatus());
+                }
+
+                // 保存到文件
+                byte[] bytes = response.bodyBytes();
+                FileUtil.writeBytes(bytes, targetFile);
+
+                if (targetFile.exists() && targetFile.length() > 0) {
+                    long fileSize = targetFile.length();
+                    String fileSizeStr = formatFileSize(fileSize);
+
+                    log.info("图片下载成功: {}, 大小: {}", targetFile.getAbsolutePath(), fileSizeStr);
+                    return String.format("图片下载成功！\n" +
+                            "文件路径: %s\n" +
+                            "文件大小: %s\n" +
+                            "文件名: %s",
+                            targetFile.getAbsolutePath(),
+                            fileSizeStr,
+                            targetFile.getName());
+                } else {
+                    throw new RuntimeException("文件保存失败");
+                }
+
+            } catch (Exception e) {
+                lastException = e;
+                log.warn("图片下载尝试 {}/{} 失败: {}", attempt, MAX_RETRY, e.getMessage());
+
+                // 如果不是最后一次尝试，等待一段时间后重试
+                if (attempt < MAX_RETRY) {
+                    try {
+                        Thread.sleep(1000 * attempt);  // 递增延迟
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 所有重试都失败
+        log.error("图片下载失败，已重试{}次", MAX_RETRY, lastException);
+        return String.format("图片下载失败: %s\n\n建议：\n" +
+                "1. 检查网络连接是否正常\n" +
+                "2. 确认图片URL是否有效\n" +
+                "3. 某些国外网站可能需要特殊网络环境",
+                lastException != null ? lastException.getMessage() : "未知错误");
     }
 
     /**

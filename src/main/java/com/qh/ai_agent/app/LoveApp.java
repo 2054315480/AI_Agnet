@@ -32,6 +32,7 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.boot.autoconfigure.rsocket.RSocketProperties;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 import java.util.Set;
@@ -121,6 +122,31 @@ public class LoveApp {
         String content = chatResponse.getResult().getOutput().getText();
         log.info("content:{}",content);
         return content;
+    }
+
+    /*
+
+AI 基础对话，支持多轮对话 支持SSE流式传输
+ */
+    public Flux<String> doChatByStream (String message,String chatId){
+        //使用查询重写器
+        String rewrittenMessage = queryReweiter.doQueryReweiter(message);
+
+        // 添加参数校验和调试日志
+        log.info("doChat 调用 - chatId: {}, message: {}", chatId, rewrittenMessage);
+        if (chatId == null || chatId.trim().isEmpty()) {
+            throw new IllegalArgumentException("chatId 不能为空");
+        }
+
+        return chatClient
+                        .prompt()
+                        // 使用改写后的查询
+                        .user(rewrittenMessage)
+                        .advisors(spec -> spec
+                                .param("chat_memory_conversation_id", chatId)
+                        )
+                        .stream()
+                        .content();
     }
 
 
@@ -359,13 +385,19 @@ AI 恋爱报告功能，实战结构化输出
 
     public String doChatWithTools (String message,String chatId){
         // 添加参数校验和调试日志
-        log.info("doChatWithReport 调用 - chatId: {}, message: {}", chatId, message);
+        log.info("doChatWithTools 调用 - chatId: {}, message: {}", chatId, message);
         if (chatId == null || chatId.trim().isEmpty()) {
             throw new IllegalArgumentException("chatId 不能为空");
         }
 
+        // 工具调用场景使用更中性的系统提示词，避免恋爱顾问角色干扰
+        String toolSystemPrompt = "你是一个智能助手，可以帮助用户使用各种工具完成具体任务。" +
+                "你可以使用提供的工具来帮助用户搜索信息、下载文件、抓取网页内容等。" +
+                "直接执行用户的任务请求，不要添加无关的角色设定或开场白。";
+
          ChatResponse chatResponse= chatClient
                 .prompt()
+                .system(toolSystemPrompt)  // 使用工具专用的系统提示词
                 .user(message)
                 .advisors(spec -> spec
                         .param("chat_memory_conversation_id", chatId)
@@ -375,7 +407,6 @@ AI 恋爱报告功能，实战结构化输出
                 .advisors(new My_loggerAdvisor(67))
                 .toolCallbacks(allTools)
                 .call()
-                //.entity(LoveReport.class);
                 .chatResponse();
         String content = chatResponse.getResult().getOutput().getText();
         log.info("content:{}",content);

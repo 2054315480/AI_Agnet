@@ -18,6 +18,7 @@ public class ToolRegistration {
             WebScrapingTool webScrapingTool,
             ResourceDownloadTool resourceDownloadTool,
             TerminalOperationTool terminalOperationTool,
+            TerminateTool terminateTool,
             PDFGenerationTool pdfGenerationTool) {
         return ToolCallbacks.from(
                 fileOperationTool,
@@ -25,6 +26,7 @@ public class ToolRegistration {
                 webScrapingTool,
                 resourceDownloadTool,
                 terminalOperationTool,
+                terminateTool,
                 pdfGenerationTool
                 );
     }
