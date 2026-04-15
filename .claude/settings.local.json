@@ -61,7 +61,10 @@
       "Bash(timeout:*)",
       "Bash(netstat -ano)",
       "Bash(curl:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(javap -p -c spring-ai-alibaba-dashscope-1.1.2.0.jar)",
+      "Bash(javap -p com/alibaba/cloud/ai/dashscope/chat/DashScopeChatOptions.class)",
+      "Bash(./mvnw compile:*)"
     ]
   }
 }
