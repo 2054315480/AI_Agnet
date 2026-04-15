@@ -2,8 +2,6 @@ package com.qh.ai_agent.Agent;
 
 
 import com.qh.ai_agent.Agent.Model.AgentState;
-import com.qh.ai_agent.advisor.My_loggerAdvisor;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Component;
@@ -17,10 +15,8 @@ public   class HeManus extends ToolCallAgent{
 
 
     public HeManus(ToolCallback[] allTools, ChatModel dashscopeChatModel) {
-        super(allTools);
+        super(allTools, dashscopeChatModel);
         this.setName("HeManus");
-        // 设置 ChatClient
-        this.setChatClient(ChatClient.builder(dashscopeChatModel).build());
         // 设置状态为 RUNNING 以便可以运行
         this.setState(AgentState.RUNNING);
         String SystemPrompt ="You are HeManus, an all-capable AI assistant, aimed at solving any task presented by the user.\n" +
@@ -32,9 +28,5 @@ public   class HeManus extends ToolCallAgent{
                 "        If you want to stop the interaction at any point, use the `terminate` tool/function call.";
         this.setNextStepPrompt(NewSystemPrompt);
         this.setMaxStep(20);
-        ChatClient chatClient = ChatClient.builder(dashscopeChatModel)
-                .defaultAdvisors(new My_loggerAdvisor(68))
-                .build();
-        this.setChatClient(chatClient);
     }
 }

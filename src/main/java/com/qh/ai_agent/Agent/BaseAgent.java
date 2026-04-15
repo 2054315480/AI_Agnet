@@ -46,6 +46,22 @@ public abstract class BaseAgent {
     //Memory 记忆，自主维护上下文
     private List<Message> messagesList = new ArrayList<>();
 
+    // SSE 推送器，在 runStream 中设置
+    protected SseEmitter currentSseEmitter;
+
+    /**
+     * 向当前 SSE 连接推送消息（仅在 runStream 模式下有效）
+     */
+    protected void sendSse(String data) {
+        if (currentSseEmitter != null) {
+            try {
+                currentSseEmitter.send(SseEmitter.event().data(data));
+            } catch (Exception e) {
+                log.warn("SSE 推送失败: {}", e.getMessage());
+            }
+        }
+    }
+
     /**
      *
      *  运行代理
@@ -106,8 +122,10 @@ public abstract class BaseAgent {
 
     public SseEmitter runStream(String userPrompt){
 
-        // 创建一个超市使劲按较长的 SseEmitter
+        // 创建一个超时时间较长的 SseEmitter
         SseEmitter sseEmitter = new SseEmitter(300000L); // 设置五分钟超时
+        this.currentSseEmitter = sseEmitter;
+
         CompletableFuture.runAsync(()->{
 
             try {
@@ -139,12 +157,13 @@ public abstract class BaseAgent {
                     int stepNumber = i+1;
                     currentStep = stepNumber;
                     log.info("step number: {}/{}", stepNumber,maxStep);
+                    sendSse("Step " + stepNumber + "/" + maxStep + " 开始执行...");
 
                     // 单步执行
                     String stepResult = step();
                     String result = "Step  " + stepNumber + ": " + stepResult;
                     results.add(result);
-                    sseEmitter.send("Step  " + stepNumber + ": " + stepResult);
+                    sendSse("Step " + stepNumber + " 完成: " + stepResult);
                 }
                 // 检查是否超出步骤限制
                 if(currentStep == maxStep){
@@ -165,6 +184,7 @@ public abstract class BaseAgent {
 
                // sseEmitter.complete();
             }finally {
+                this.currentSseEmitter = null;
                 this.cleanup(); // 清理资源
             }
             // 执行循环
@@ -173,6 +193,7 @@ public abstract class BaseAgent {
         // 设置超时回调
         sseEmitter.onTimeout(()->{
             this.state = AgentState.ERROR;
+            this.currentSseEmitter = null;
             this.cleanup();
             log.info("SSE EMITTER TIMEOUT");
         });
@@ -181,6 +202,7 @@ public abstract class BaseAgent {
             if(this.state == AgentState.RUNNING){
                 this.state = AgentState.FINISHED;
             }
+            this.currentSseEmitter = null;
             this.cleanup();
             log.info("SSE EMITTER COMPLETION");
         });
