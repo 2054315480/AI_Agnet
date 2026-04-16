@@ -142,6 +142,7 @@ export function useConversations() {
       isUser: message.isUser ?? false,
       loading: message.loading ?? false,
       stepLabel: message.stepLabel || '',
+      thinkingSteps: message.thinkingSteps || [],
       time: message.time || formatTime(Date.now()),
       timestamp: Date.now()
     }

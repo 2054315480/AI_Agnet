@@ -26,6 +26,7 @@
           :is-user="msg.isUser"
           :loading="msg.loading"
           :step-label="msg.stepLabel"
+          :thinking-steps="msg.thinkingSteps || []"
           :time="msg.time"
           :agent="activeAgent"
         />
@@ -70,32 +71,45 @@ const inputPlaceholder = computed(() =>
 
 function handleSend(text) {
   sendMessage(text)
+  // Force scroll to bottom after sending a message
+  scrollToBottom(true)
 }
 
-// Auto-scroll logic
+// Auto-scroll — uses requestAnimationFrame after nextTick for reliable DOM timing
 function scrollToBottom(force = false) {
   nextTick(() => {
-    const el = messagesAreaRef.value
-    if (!el) return
-    if (force) {
-      el.scrollTop = el.scrollHeight
-      return
-    }
-    // Only auto-scroll if user is near the bottom (within 80px)
-    const threshold = 80
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    if (distanceFromBottom < threshold) {
-      el.scrollTop = el.scrollHeight
-    }
+    requestAnimationFrame(() => {
+      const el = messagesAreaRef.value
+      if (!el) return
+
+      if (force) {
+        el.scrollTop = el.scrollHeight
+        return
+      }
+
+      // During streaming (any message is loading), always force scroll
+      const conv = activeConversation.value
+      const lastMsg = conv?.messages?.[conv.messages.length - 1]
+      if (lastMsg && lastMsg.loading) {
+        el.scrollTop = el.scrollHeight
+        return
+      }
+
+      // Otherwise only scroll if user is near bottom (within 120px)
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (distanceFromBottom < 120) {
+        el.scrollTop = el.scrollHeight
+      }
+    })
   })
 }
 
-// Watch for new messages
+// Watch for new messages (count changes)
 watch(() => activeConversation.value?.messages?.length, () => {
   scrollToBottom()
 })
 
-// Watch for content updates (streaming)
+// Watch for content updates (Love streaming — content grows on same message)
 watch(
   () => {
     const conv = activeConversation.value
@@ -104,12 +118,24 @@ watch(
     return last ? last.content : ''
   },
   () => {
-    // Force scroll during streaming if already near bottom
     scrollToBottom()
   }
 )
 
-// Scroll on first message
+// Watch for thinkingSteps updates (Manus streaming — steps grow on same message)
+watch(
+  () => {
+    const conv = activeConversation.value
+    if (!conv || conv.messages.length === 0) return 0
+    const last = conv.messages[conv.messages.length - 1]
+    return last?.thinkingSteps?.length || 0
+  },
+  () => {
+    scrollToBottom()
+  }
+)
+
+// Scroll when switching conversations
 watch(() => activeConversation.value?.id, () => {
   scrollToBottom(true)
   nextTick(() => chatInputRef.value?.focus())

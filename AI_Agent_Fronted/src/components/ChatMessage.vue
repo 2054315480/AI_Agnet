@@ -25,35 +25,73 @@
     </div>
     <!-- Bubble -->
     <div class="bubble-wrap">
-      <!-- Step block for Manus steps -->
-      <StepBlock
-        v-if="stepLabel && !isUser && agent === 'manus'"
-        :label="stepLabel"
-        :content="content"
-        :defaultOpen="true"
-      />
-      <!-- Regular bubble (shown when no stepLabel, or for love agent) -->
-      <template v-else>
-        <div class="bubble" :class="{ 'is-loading': loading && !content }">
-          <div
-            class="bubble-text"
-            :class="{ 'streaming-cursor': loading && content }"
-            v-html="renderedContent"
-          ></div>
-          <div v-if="loading && !content" class="typing-indicator">
-            <span></span><span></span><span></span>
+      <!-- Thinking process block (DeepSeek style) -->
+      <div v-if="hasThinkingSteps" class="thinking-block" :class="{ expanded: isThinkingExpanded }">
+        <button class="thinking-header" @click="toggleThinking">
+          <svg class="thinking-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+          <!-- Spinning icon when loading, static when done -->
+          <svg v-if="loading" class="thinking-icon spinning" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+          </svg>
+          <svg v-else class="thinking-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 16v-4"/>
+            <path d="M12 8h.01"/>
+          </svg>
+          <span class="thinking-title">
+            <template v-if="loading">
+              正在思考... {{ thinkingSteps.length }} 步
+            </template>
+            <template v-else>
+              思考过程（{{ thinkingSteps.length }} 步）
+            </template>
+          </span>
+        </button>
+
+        <!-- Thinking steps body -->
+        <div class="thinking-body" ref="thinkingBodyRef">
+          <div class="thinking-body-inner">
+            <div
+              v-for="(step, idx) in displayedSteps"
+              :key="idx"
+              class="thinking-step"
+              :class="[`step-${step.type}`, { 'step-new': idx === thinkingSteps.length - 1 && loading }]"
+            >
+              <span class="step-icon">{{ stepIcon(step.type) }}</span>
+              <div class="step-content">
+                <span class="step-label-text">{{ stepLabel(step.type) }}</span>
+                <span class="step-text">{{ step.displayContent }}</span>
+              </div>
+            </div>
+            <!-- Loading dots at the end while thinking -->
+            <div v-if="loading" class="thinking-loading">
+              <span></span><span></span><span></span>
+            </div>
           </div>
         </div>
-      </template>
+      </div>
+
+      <!-- Main content bubble -->
+      <div v-if="content || (loading && !hasThinkingSteps)" class="bubble" :class="{ 'is-loading': loading && !content }">
+        <div
+          class="bubble-text"
+          :class="{ 'streaming-cursor': loading && content }"
+          v-html="renderedContent"
+        ></div>
+        <div v-if="loading && !content && !hasThinkingSteps" class="typing-indicator">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
       <div v-if="time" class="msg-time">{{ time }}</div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { marked } from 'marked'
-import StepBlock from './StepBlock.vue'
 
 marked.setOptions({
   breaks: true,
@@ -66,7 +104,69 @@ const props = defineProps({
   agent: { type: String, default: 'love' },
   loading: { type: Boolean, default: false },
   stepLabel: { type: String, default: '' },
+  thinkingSteps: { type: Array, default: () => [] },
   time: { type: String, default: '' }
+})
+
+const thinkingOpen = ref(false)
+const thinkingBodyRef = ref(null)
+
+const hasThinkingSteps = computed(() => props.thinkingSteps && props.thinkingSteps.length > 0)
+
+// Auto-expand during loading, allow manual toggle when done
+const isThinkingExpanded = computed(() => {
+  if (props.loading) return true  // Always expanded during streaming
+  return thinkingOpen.value
+})
+
+function toggleThinking() {
+  if (!props.loading) {
+    thinkingOpen.value = !thinkingOpen.value
+  }
+}
+
+// Truncate long content during streaming, show full when done
+const TRUNCATE_LENGTH = 150
+const displayedSteps = computed(() => {
+  if (!props.thinkingSteps) return []
+  return props.thinkingSteps.map((step, idx) => {
+    const isLast = idx === props.thinkingSteps.length - 1
+    // During loading, truncate all steps. When done, show full.
+    if (props.loading && step.content && step.content.length > TRUNCATE_LENGTH) {
+      return {
+        ...step,
+        displayContent: step.content.substring(0, TRUNCATE_LENGTH) + '...'
+      }
+    }
+    return { ...step, displayContent: step.content }
+  })
+})
+
+function stepIcon(type) {
+  switch (type) {
+    case 'thinking': return '\u{1F4AD}'
+    case 'tool_call': return '\u{1F527}'
+    case 'tool_result': return '\u{1F4CB}'
+    default: return '\u{2022}'
+  }
+}
+
+function stepLabel(type) {
+  switch (type) {
+    case 'thinking': return '思考中'
+    case 'tool_call': return '调用工具'
+    case 'tool_result': return '执行结果'
+    default: return ''
+  }
+}
+
+// Scroll thinking body to bottom when new steps arrive
+watch(() => props.thinkingSteps?.length, () => {
+  nextTick(() => {
+    if (thinkingBodyRef.value) {
+      thinkingBodyRef.value.scrollTop = thinkingBodyRef.value.scrollHeight
+    }
+  })
 })
 
 const renderedContent = computed(() => {
@@ -176,6 +276,171 @@ const renderedContent = computed(() => {
 @keyframes blink-cursor {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
+}
+
+/* ===== Thinking process block (DeepSeek style) ===== */
+.thinking-block {
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-bottom: 8px;
+  background: var(--bg-step);
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  width: 100%;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: var(--transition);
+}
+
+.thinking-header:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.thinking-chevron {
+  flex-shrink: 0;
+  transition: transform 0.25s ease;
+}
+
+.thinking-block.expanded .thinking-chevron {
+  transform: rotate(180deg);
+}
+
+.thinking-icon {
+  flex-shrink: 0;
+  color: var(--accent-manus);
+}
+
+.thinking-icon.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.thinking-title {
+  flex: 1;
+  text-align: left;
+}
+
+/* Thinking body — scrollable when many steps */
+.thinking-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.thinking-block.expanded .thinking-body {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.thinking-body-inner {
+  padding: 0 14px 10px;
+}
+
+/* Individual step */
+.thinking-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-secondary);
+  line-height: 1.5;
+  animation: stepSlideIn 0.3s ease;
+}
+
+.thinking-step:last-child {
+  border-bottom: none;
+}
+
+@keyframes stepSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Highlight the newest step during loading */
+.thinking-step.step-new {
+  color: var(--text-primary);
+}
+
+.step-icon {
+  flex-shrink: 0;
+  font-size: 0.875rem;
+  width: 20px;
+  text-align: center;
+  padding-top: 1px;
+}
+
+.step-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step-label-text {
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-tertiary);
+}
+
+.step-tool_call .step-label-text {
+  color: var(--accent-manus);
+}
+
+.step-tool_result .step-label-text {
+  color: var(--accent-primary);
+}
+
+.step-text {
+  word-break: break-word;
+  white-space: pre-wrap;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+/* Loading dots at end of thinking */
+.thinking-loading {
+  display: flex;
+  gap: 4px;
+  padding: 8px 0 0 28px;
+}
+
+.thinking-loading span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-manus);
+  animation: thinking-dot 1.4s infinite both;
+}
+
+.thinking-loading span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-loading span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes thinking-dot {
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1.2); }
 }
 
 /* ===== Markdown styles ===== */
