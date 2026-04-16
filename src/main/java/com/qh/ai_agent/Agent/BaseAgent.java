@@ -63,6 +63,24 @@ public abstract class BaseAgent {
     }
 
     /**
+     * 向当前 SSE 连接推送结构化 JSON 事件
+     * @param type 事件类型: thinking / tool_call / tool_result / answer / done
+     * @param content 事件内容
+     */
+    protected void sendSseEvent(String type, String content) {
+        if (currentSseEmitter != null) {
+            try {
+                String json = String.format("{\"type\":\"%s\",\"content\":\"%s\"}",
+                        type,
+                        content != null ? content.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") : "");
+                currentSseEmitter.send(SseEmitter.event().data(json));
+            } catch (Exception e) {
+                log.warn("SSE 事件推送失败: {}", e.getMessage());
+            }
+        }
+    }
+
+    /**
      *
      *  运行代理
      * @parm userPrompt 用户提示词
@@ -157,20 +175,20 @@ public abstract class BaseAgent {
                     int stepNumber = i+1;
                     currentStep = stepNumber;
                     log.info("step number: {}/{}", stepNumber,maxStep);
-                    sendSse("Step " + stepNumber + "/" + maxStep + " 开始执行...");
 
-                    // 单步执行
+                    // 单步执行（子类通过 sendSseEvent 发送结构化事件）
                     String stepResult = step();
                     String result = "Step  " + stepNumber + ": " + stepResult;
                     results.add(result);
-                    sendSse("Step " + stepNumber + " 完成: " + stepResult);
                 }
                 // 检查是否超出步骤限制
                 if(currentStep == maxStep){
                     state = AgentState.FINISHED;
                     results.add("Terminated : Reched max steps (" + maxStep + ")");
-                    sseEmitter.send("Terminated :达到最大步数(" + maxStep + ")");
+                    sendSseEvent("done", "达到最大步数(" + maxStep + ")");
                 }
+                // 发送完成信号
+                sendSseEvent("done", "");
                 sseEmitter.complete();
             } catch (Exception e) {
                 state = AgentState.ERROR;

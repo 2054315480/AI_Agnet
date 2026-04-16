@@ -124,9 +124,9 @@ public  class ToolCallAgent extends ReActAgent{
             log.info(getName() + "的思考: {}", result);
 
             if (toolCallList == null || toolCallList.isEmpty()) {
-                // 没有工具调用，任务完成
+                // 没有工具调用，任务完成 —— 发送最终答案
                 getMessagesList().add(assistantMessage);
-                sendSse("  AI思考结果: " + (result != null ? result : "（无文本输出）"));
+                sendSseEvent("answer", result != null ? result : "（无文本输出）");
                 return false;
             } else {
                 log.info(getName() + "选择了" + toolCallList.size() + "个工具来使用");
@@ -134,7 +134,7 @@ public  class ToolCallAgent extends ReActAgent{
                         .map(toolcall -> String.format("工具名称：%s, 参数: %s ", toolcall.name(), toolcall.arguments()))
                         .collect(Collectors.joining("\n"));
                 log.info(toolCallInfo);
-                sendSse("  决定使用 " + toolCallList.size() + " 个工具:\n" + toolCallInfo);
+                sendSseEvent("tool_call", "决定使用 " + toolCallList.size() + " 个工具:\n" + toolCallInfo);
 
                 // 将助手消息（含工具调用）加入消息列表，供 act() 使用
                 getMessagesList().add(assistantMessage);
@@ -174,7 +174,7 @@ public  class ToolCallAgent extends ReActAgent{
                 .map(response -> "工具" + response.name() + " 返回结果" + response.responseData())
                 .collect(Collectors.joining("\n"));
         log.info(results);
-        sendSse("  工具执行结果:\n" + results);
+        sendSseEvent("tool_result", results);
         return results;
     }
 

@@ -28,16 +28,13 @@ public abstract class ReActAgent extends BaseAgent{
     @Override
     public  String step() {
         try {
-            // 先思考
-            sendSse("  正在思考...");
+            // 先思考（子类通过 sendSseEvent 发送结构化事件）
             boolean shouldAct = think();
             if (!shouldAct) {
                 // 没有工具需要调用，设置状态为完成
                 setState(AgentState.FINISHED);
-                sendSse("  思考完成 - 任务已结束");
                 return "思考完成 - 无需行动";
             }
-            sendSse("  正在执行行动...");
             return act();
         }catch (Exception e){
             // 记录异常日志

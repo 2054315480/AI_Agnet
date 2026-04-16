@@ -29,7 +29,7 @@ export function useChat() {
     addMessage(convId, { content: text, isUser: true })
 
     // Add AI placeholder
-    addMessage(convId, { content: '', isUser: false, loading: true })
+    addMessage(convId, { content: '', isUser: false, loading: true, thinkingSteps: [] })
 
     isLoading.value = true
 
@@ -55,9 +55,7 @@ export function useChat() {
       onComplete() {
         const lastMsg = getLastMsg(convId)
         if (lastMsg && !lastMsg.isUser) {
-          const now = new Date()
-          const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-          updateLastMessage(convId, { loading: false, time })
+          updateLastMessage(convId, { loading: false, time: currentTime() })
         }
         isLoading.value = false
         abortController = null
@@ -78,30 +76,49 @@ export function useChat() {
   }
 
   function sendManusMessage(text, convId) {
-    let stepCount = 0
-
     abortController = chatManusStream(text, {
-      onStep(data) {
-        stepCount++
-        // Each step gets its own message bubble
-        addMessage(convId, {
-          content: data,
-          isUser: false,
-          stepLabel: `Step ${stepCount}`,
-          loading: false
-        })
+      onStep(rawData) {
+        // Try to parse as JSON event
+        let event = null
+        try {
+          event = JSON.parse(rawData)
+        } catch (e) {
+          // Not JSON — treat as plain text (backward compat)
+          event = { type: 'thinking', content: rawData }
+        }
+
+        const lastMsg = getLastMsg(convId)
+        if (!lastMsg || lastMsg.isUser) return
+
+        if (event.type === 'tool_call' || event.type === 'tool_result' || event.type === 'thinking') {
+          // Accumulate into thinkingSteps
+          const steps = [...(lastMsg.thinkingSteps || []), { type: event.type, content: event.content }]
+          updateLastMessage(convId, { thinkingSteps: steps, loading: true })
+        } else if (event.type === 'answer') {
+          // Update main content with the final answer
+          updateLastMessage(convId, { content: event.content, loading: true })
+        } else if (event.type === 'done') {
+          // Stream complete
+          updateLastMessage(convId, { loading: false, time: currentTime() })
+        }
       },
       onComplete() {
+        const lastMsg = getLastMsg(convId)
+        if (lastMsg && !lastMsg.isUser && lastMsg.loading) {
+          updateLastMessage(convId, { loading: false, time: currentTime() })
+        }
         isLoading.value = false
         abortController = null
       },
       onError(err) {
-        addMessage(convId, {
-          content: `执行出错：${err.message}`,
-          isUser: false,
-          stepLabel: 'Error',
-          loading: false
-        })
+        const lastMsg = getLastMsg(convId)
+        if (lastMsg && !lastMsg.isUser) {
+          updateLastMessage(convId, {
+            content: `执行出错：${err.message}`,
+            loading: false,
+            time: currentTime()
+          })
+        }
         isLoading.value = false
         abortController = null
       }
