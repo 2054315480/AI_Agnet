@@ -1,0 +1,225 @@
+/* ===== CSS Reset & Base ===== */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ===== Dark Theme (Default) ===== */
+:root,
+[data-theme="dark"] {
+  /* Surface layers */
+  --bg-app: #0d1117;
+  --bg-sidebar: #161b22;
+  --bg-chat: #0d1117;
+  --bg-input: #21262d;
+  --bg-input-focus: #292e36;
+  --bg-bubble-user: #1f6feb;
+  --bg-bubble-ai: #161b22;
+  --bg-hover: #1c2128;
+  --bg-active: #1f2937;
+  --bg-code: #161b22;
+  --bg-welcome: #0d1117;
+  --bg-step: #1c2128;
+  --bg-overlay: rgba(0, 0, 0, 0.5);
+  --bg-toast: #292e36;
+
+  /* Text hierarchy */
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-tertiary: #6e7681;
+  --text-inverse: #0d1117;
+  --text-user-bubble: #ffffff;
+  --text-ai-bubble: #e6edf3;
+  --text-link: #58a6ff;
+
+  /* Borders and dividers */
+  --border-primary: #30363d;
+  --border-secondary: #21262d;
+  --border-input: #30363d;
+  --border-input-focus: #1f6feb;
+
+  /* Accent colors */
+  --accent-primary: #1f6feb;
+  --accent-primary-hover: #388bfd;
+  --accent-love: #f778ba;
+  --accent-love-hover: #ff9bce;
+  --accent-love-bg: rgba(247, 120, 186, 0.12);
+  --accent-love-border: rgba(247, 120, 186, 0.25);
+  --accent-manus: #3fb8c9;
+  --accent-manus-hover: #5fd4e5;
+  --accent-manus-bg: rgba(63, 184, 201, 0.12);
+  --accent-manus-border: rgba(63, 184, 201, 0.25);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-sidebar: 4px 0 16px rgba(0, 0, 0, 0.3);
+
+  /* Scrollbar */
+  --scrollbar-thumb: #30363d;
+  --scrollbar-thumb-hover: #484f58;
+
+  /* Danger / Error */
+  --danger: #f85149;
+  --danger-bg: rgba(248, 81, 73, 0.12);
+
+  /* Layout */
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 60px;
+  --chat-max-width: 780px;
+
+  /* Shared */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
+  --transition: all 0.2s ease;
+}
+
+/* ===== Light Theme ===== */
+[data-theme="light"] {
+  --bg-app: #ffffff;
+  --bg-sidebar: #f6f8fa;
+  --bg-chat: #ffffff;
+  --bg-input: #f6f8fa;
+  --bg-input-focus: #ffffff;
+  --bg-bubble-user: #1f6feb;
+  --bg-bubble-ai: #f6f8fa;
+  --bg-hover: #f0f2f5;
+  --bg-active: #e8ecf0;
+  --bg-code: #f6f8fa;
+  --bg-welcome: #ffffff;
+  --bg-step: #f0f8ff;
+  --bg-overlay: rgba(0, 0, 0, 0.4);
+  --bg-toast: #f6f8fa;
+
+  --text-primary: #1f2328;
+  --text-secondary: #656d76;
+  --text-tertiary: #8b949e;
+  --text-inverse: #ffffff;
+  --text-user-bubble: #ffffff;
+  --text-ai-bubble: #1f2328;
+  --text-link: #0969da;
+
+  --border-primary: #d0d7de;
+  --border-secondary: #e8ecf0;
+  --border-input: #d0d7de;
+  --border-input-focus: #1f6feb;
+
+  --accent-primary: #1f6feb;
+  --accent-primary-hover: #388bfd;
+  --accent-love: #e8457c;
+  --accent-love-hover: #f778ba;
+  --accent-love-bg: #fff0f5;
+  --accent-love-border: #ffc0d6;
+  --accent-manus: #0097a7;
+  --accent-manus-hover: #00bcd4;
+  --accent-manus-bg: #e0f7fa;
+  --accent-manus-border: #80deea;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-sidebar: 4px 0 16px rgba(0, 0, 0, 0.06);
+
+  --scrollbar-thumb: #c1c8cd;
+  --scrollbar-thumb-hover: #a0a8ae;
+
+  --danger: #cf222e;
+  --danger-bg: #ffebe9;
+}
+
+/* ===== Global Styles ===== */
+html {
+  font-size: 16px;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial,
+    sans-serif;
+  color: var(--text-primary);
+  background: var(--bg-app);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  height: 100%;
+  overflow: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+#app {
+  height: 100%;
+  overflow: hidden;
+}
+
+a {
+  color: var(--text-link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  background: none;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  outline: none;
+}
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* ===== Selection ===== */
+::selection {
+  background: var(--accent-primary);
+  color: #ffffff;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  :root,
+  [data-theme="dark"],
+  [data-theme="light"] {
+    --radius: 10px;
+    --radius-sm: 6px;
+    --radius-xs: 4px;
+    --sidebar-width: 260px;
+  }
+
+  html {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  html {
+    font-size: 13px;
+  }
+}
