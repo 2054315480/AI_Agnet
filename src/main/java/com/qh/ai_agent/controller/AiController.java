@@ -9,6 +9,7 @@ import jakarta.annotation.Resource;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.content.Media;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.util.MimeType;
@@ -40,6 +41,9 @@ public class AiController {
 
     @Resource
     private SensitiveInfoService sensitiveInfoService;
+
+    @Value("${spring.ai.dashscope.image.options.model:qwen-vl-plus}")
+    private String visionModel;
 
     /**
      * 同步调用AI 的恋爱大师方法
@@ -139,7 +143,7 @@ public class AiController {
     @GetMapping("/manus/chat")
     public SseEmitter doChatWithManus(String message) {
         HeManus heManus = new HeManus(allTools,dashscopeChatModel, promptTemplateService, sensitiveInfoService);
-
+        heManus.setVisionModel(visionModel);
         return heManus.runStream(message);
 
     }
@@ -153,6 +157,7 @@ public class AiController {
             @RequestParam(value = "image", required = false) MultipartFile image) {
 
         HeManus heManus = new HeManus(allTools, dashscopeChatModel, promptTemplateService, sensitiveInfoService);
+        heManus.setVisionModel(visionModel);
 
         if (image != null && !image.isEmpty()) {
             try {

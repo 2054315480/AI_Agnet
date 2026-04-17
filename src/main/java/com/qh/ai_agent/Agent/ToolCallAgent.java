@@ -48,6 +48,9 @@ public  class ToolCallAgent extends ReActAgent{
     // ChatModel 引用（直接调用模型，绕过 ChatClient 的自动工具执行）
     private final ChatModel chatModel;
 
+    // 视觉模型名称（当消息包含图片时使用）
+    private String visionModel;
+
     public ToolCallAgent(ToolCallback[] availableTools, ChatModel chatModel, ToolCallingManager toolCallingManager) {
         super();
         this.availableTools = availableTools;
@@ -101,10 +104,27 @@ public  class ToolCallAgent extends ReActAgent{
         allMessages.addAll(getMessagesList());
 
         // 构建 ChatOptions：包含工具定义 + 禁用自动工具执行
-        DashScopeChatOptions options = DashScopeChatOptions.builder()
-                .internalToolExecutionEnabled(false)
-                .toolCallbacks(Arrays.asList(availableTools))
-                .build();
+        // 检测消息中是否包含图片，如有则切换到视觉模型
+        boolean hasMedia = getMessagesList().stream()
+                .filter(msg -> msg instanceof UserMessage)
+                .map(msg -> (UserMessage) msg)
+                .anyMatch(msg -> msg.getMedia() != null && !msg.getMedia().isEmpty());
+
+        DashScopeChatOptions options;
+        if (hasMedia && visionModel != null) {
+            options = DashScopeChatOptions.builder()
+                    .internalToolExecutionEnabled(false)
+                    .toolCallbacks(Arrays.asList(availableTools))
+                    .withModel(visionModel)
+                    .withMultiModel(true)
+                    .withEnableThinking(false)
+                    .build();
+        } else {
+            options = DashScopeChatOptions.builder()
+                    .internalToolExecutionEnabled(false)
+                    .toolCallbacks(Arrays.asList(availableTools))
+                    .build();
+        }
 
         Prompt prompt = new Prompt(allMessages, options);
         try {

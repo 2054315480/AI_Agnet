@@ -1,6 +1,7 @@
 package com.qh.ai_agent.app;
 
 
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.alibaba.cloud.ai.dashscope.spec.DashScopeModel;
 import com.qh.ai_agent.advisor.BannedWordAdvisor;
 import com.qh.ai_agent.advisor.My_loggerAdvisor;
@@ -33,7 +34,7 @@ import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
-import org.springframework.boot.autoconfigure.rsocket.RSocketProperties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
@@ -48,6 +49,7 @@ import java.util.Set;
 public class LoveApp {
     private final ChatClient chatClient;
     private final PromptTemplateService promptTemplateService;
+    private final String visionModel;
 
     private static final String LOVE_ADVISOR_TEMPLATE = "love-advisor";
 
@@ -64,8 +66,10 @@ public class LoveApp {
     /*
      初始化 AI 客户端
      */
-    public  LoveApp(ChatModel dashscopChatModel, BannedWordService bannedWordService, ChatMemory chatMemory, PromptTemplateService promptTemplateService, SensitiveInfoService sensitiveInfoService)  {
+    public  LoveApp(ChatModel dashscopChatModel, BannedWordService bannedWordService, ChatMemory chatMemory, PromptTemplateService promptTemplateService, SensitiveInfoService sensitiveInfoService,
+                     @Value("${spring.ai.dashscope.image.options.model:qwen-vl-plus}") String visionModel)  {
         this.promptTemplateService = promptTemplateService;
+        this.visionModel = visionModel;
 
         // 创建对话记忆 Advisor（使用注入的 ChatMemory Bean）
         MessageChatMemoryAdvisor memoryAdvisor =
@@ -174,6 +178,11 @@ AI 基础对话，支持多轮对话 支持SSE流式传输
 
         return chatClient
                 .prompt()
+                .options(DashScopeChatOptions.builder()
+                        .withModel(visionModel)
+                        .withMultiModel(true)
+                        .withEnableThinking(false)
+                        .build())
                 .user(u -> {
                     u.text(rewrittenMessage);
                     if (media != null) {
@@ -202,6 +211,11 @@ AI 基础对话，支持多轮对话 支持SSE流式传输
 
         ChatResponse chatResponse = chatClient
                 .prompt()
+                .options(DashScopeChatOptions.builder()
+                        .withModel(visionModel)
+                        .withMultiModel(true)
+                        .withEnableThinking(false)
+                        .build())
                 .user(u -> {
                     u.text(rewrittenMessage);
                     if (media != null) {
