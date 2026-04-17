@@ -51,6 +51,9 @@ public  class ToolCallAgent extends ReActAgent{
     // 视觉模型名称（当消息包含图片时使用）
     private String visionModel;
 
+    // 普通对话是否开启思考模式（部分模型如 MiniMax-M2.1 强制要求开启）
+    private Boolean chatEnableThinking = true;
+
     public ToolCallAgent(ToolCallback[] availableTools, ChatModel chatModel, ToolCallingManager toolCallingManager) {
         super();
         this.availableTools = availableTools;
@@ -123,6 +126,7 @@ public  class ToolCallAgent extends ReActAgent{
             options = DashScopeChatOptions.builder()
                     .internalToolExecutionEnabled(false)
                     .toolCallbacks(Arrays.asList(availableTools))
+                    .withEnableThinking(chatEnableThinking)
                     .build();
         }
 
@@ -156,8 +160,7 @@ public  class ToolCallAgent extends ReActAgent{
                 log.info(toolCallInfo);
                 sendSseEvent("tool_call", "决定使用 " + toolCallList.size() + " 个工具:\n" + toolCallInfo);
 
-                // 将助手消息（含工具调用）加入消息列表，供 act() 使用
-                getMessagesList().add(assistantMessage);
+                // 注意：不在此处添加 assistantMessage，act() 的 executeToolCalls 会负责添加
                 return true;
             }
         } catch (Exception e) {

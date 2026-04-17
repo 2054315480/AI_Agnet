@@ -62,6 +62,7 @@ const inputRef = ref(null)
 const fileInput = ref(null)
 const imageFile = ref(null)
 const imagePreview = ref(null)
+const imageBase64 = ref(null)
 
 function triggerFileInput() {
   fileInput.value?.click()
@@ -72,6 +73,10 @@ function handleImageSelect(event) {
   if (file && file.type.startsWith('image/')) {
     imageFile.value = file
     imagePreview.value = URL.createObjectURL(file)
+    // Read as base64 for persistent message display
+    const reader = new FileReader()
+    reader.onload = () => { imageBase64.value = reader.result }
+    reader.readAsDataURL(file)
   }
 }
 
@@ -81,6 +86,7 @@ function clearImage() {
   }
   imageFile.value = null
   imagePreview.value = null
+  imageBase64.value = null
   if (fileInput.value) fileInput.value.value = ''
 }
 
@@ -88,7 +94,8 @@ function handleSend(e) {
   if (e) e.preventDefault()
   const msg = text.value.trim()
   if ((!msg && !imageFile.value) || props.disabled) return
-  emit('send', msg, imageFile.value)
+  const previewUrl = imageBase64.value || imagePreview.value
+  emit('send', msg, imageFile.value, previewUrl)
   text.value = ''
   clearImage()
   nextTick(() => autoResize())

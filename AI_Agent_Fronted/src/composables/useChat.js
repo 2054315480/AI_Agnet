@@ -14,7 +14,7 @@ export function useChat() {
   const isLoading = ref(false)
   let abortController = null
 
-  function sendMessage(text, imageFile) {
+  function sendMessage(text, imageFile, imageUrl) {
     if ((!text.trim() && !imageFile) || isLoading.value) return
 
     let conv = activeConversation.value
@@ -25,11 +25,11 @@ export function useChat() {
 
     const convId = conv.id
 
-    // Add user message with optional image indicator
+    // Add user message with optional image
     addMessage(convId, {
       content: text || '(图片)',
       isUser: true,
-      hasImage: !!imageFile
+      imageUrl: imageUrl || null
     })
 
     // Add AI placeholder
