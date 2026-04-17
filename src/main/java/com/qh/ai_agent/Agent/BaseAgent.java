@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.content.Media;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.ArrayList;
@@ -131,6 +132,50 @@ public abstract class BaseAgent {
         // 执行循环
 
     }
+
+    /**
+     * 运行代理（支持图片输入）
+     * @param userPrompt 用户提示词
+     * @param mediaList 图片等媒体内容列表
+     * @return 执行结果
+     */
+    public String run(String userPrompt, List<Media> mediaList) {
+        if (this.state == AgentState.IDLE) {
+            throw new RuntimeException("Can't run agent because state is IDLE" + this.state);
+        }
+        if (StrUtil.isBlank(userPrompt)) {
+            throw new RuntimeException("Can't run agent because user prompt is blank");
+        }
+
+        this.state = AgentState.RUNNING;
+        UserMessage userMessage = (mediaList != null && !mediaList.isEmpty())
+                ? UserMessage.builder().text(userPrompt).media(mediaList).build()
+                : new UserMessage(userPrompt);
+        messagesList.add(userMessage);
+
+        List<String> results = new ArrayList<>();
+        try {
+            for (int i = 0; i < maxStep && state != AgentState.FINISHED; i++) {
+                int stepNumber = i + 1;
+                currentStep = stepNumber;
+                log.info("step number: {}/{}", stepNumber, maxStep);
+                String stepResult = step();
+                results.add("Step  " + stepNumber + ": " + stepResult);
+            }
+            if (currentStep == maxStep) {
+                state = AgentState.FINISHED;
+                results.add("Terminated : Reached max steps (" + maxStep + ")");
+            }
+            return String.join("\n", results);
+        } catch (Exception e) {
+            state = AgentState.ERROR;
+            log.error("error executing agent ", e);
+            return "执行错误" + e.getMessage();
+        } finally {
+            this.cleanup();
+        }
+    }
+
     /**
      *
      *  运行代理(流式输出）
@@ -226,6 +271,86 @@ public abstract class BaseAgent {
         });
         return sseEmitter;
 
+    }
+
+    /**
+     * 运行代理（流式输出，支持图片输入）
+     * @param userPrompt 用户提示词
+     * @param mediaList 图片等媒体内容列表
+     * @return SseEmitter
+     */
+    public SseEmitter runStream(String userPrompt, List<Media> mediaList) {
+        SseEmitter sseEmitter = new SseEmitter(300000L);
+        this.currentSseEmitter = sseEmitter;
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                if (this.state == AgentState.IDLE) {
+                    sseEmitter.send("错误：无法从当前状态进行代理" + this.state);
+                    sseEmitter.complete();
+                    return;
+                }
+                if (StrUtil.isBlank(userPrompt)) {
+                    sseEmitter.send("错误：无法用空提示词进行代理");
+                    sseEmitter.complete();
+                    return;
+                }
+            } catch (Exception e) {
+                sseEmitter.completeWithError(e);
+            }
+
+            this.state = AgentState.RUNNING;
+            UserMessage userMessage = (mediaList != null && !mediaList.isEmpty())
+                    ? UserMessage.builder().text(userPrompt).media(mediaList).build()
+                    : new UserMessage(userPrompt);
+            messagesList.add(userMessage);
+
+            List<String> results = new ArrayList<>();
+            try {
+                for (int i = 0; i < maxStep && state != AgentState.FINISHED; i++) {
+                    int stepNumber = i + 1;
+                    currentStep = stepNumber;
+                    log.info("step number: {}/{}", stepNumber, maxStep);
+                    String stepResult = step();
+                    results.add("Step  " + stepNumber + ": " + stepResult);
+                }
+                if (currentStep == maxStep) {
+                    state = AgentState.FINISHED;
+                    results.add("Terminated : Reached max steps (" + maxStep + ")");
+                    sendSseEvent("done", "达到最大步数(" + maxStep + ")");
+                }
+                sendSseEvent("done", "");
+                sseEmitter.complete();
+            } catch (Exception e) {
+                state = AgentState.ERROR;
+                log.error("error executing agent ", e);
+                try {
+                    sseEmitter.send("执行错误" + e.getMessage());
+                    sseEmitter.complete();
+                } catch (Exception ex) {
+                    sseEmitter.completeWithError(ex);
+                }
+            } finally {
+                this.currentSseEmitter = null;
+                this.cleanup();
+            }
+        });
+
+        sseEmitter.onTimeout(() -> {
+            this.state = AgentState.ERROR;
+            this.currentSseEmitter = null;
+            this.cleanup();
+            log.info("SSE EMITTER TIMEOUT");
+        });
+        sseEmitter.onCompletion(() -> {
+            if (this.state == AgentState.RUNNING) {
+                this.state = AgentState.FINISHED;
+            }
+            this.currentSseEmitter = null;
+            this.cleanup();
+            log.info("SSE EMITTER COMPLETION");
+        });
+        return sseEmitter;
     }
 
 

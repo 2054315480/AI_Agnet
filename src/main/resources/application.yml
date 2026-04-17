@@ -2,12 +2,27 @@ spring:
   application:
    name:AI_Agent
   profiles:
-   active: local
+   # local=数据库+API密钥等基础设施配置
+   # dev=免费模型配置（省钱模式），生产环境去掉 dev 即可
+   active: local,dev
   # datasource: (MySQL 已暂时禁用，改由 application-local.yml 的 PostgreSQL 配置生效)
   #   url: jdbc:mysql://localhost:3306/ai_agent?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
   #   username: root
   #   password: 123456
   #   driver-class-name: com.mysql.cj.jdbc.Driver
+  # Redis 配置（当 chat.memory.type=redis 时启用）
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      database: 0
+      timeout: 5000
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 2
 
 server:
     port: 8123
@@ -57,11 +72,22 @@ knife4j:
 ai:
   # 违禁词列表，使用逗号、分号或空格分隔
   banned-words: 垃圾,暴力,色情,黄色
+  # 敏感信息脱敏配置
+  sensitive-info:
+    enabled: true
+    mask-phone: true
+    mask-id-card: true
+    mask-email: true
+    mask-bank-card: true
 
 # 对话记忆配置
 chat:
   memory:
-    # 存储类型: mysql 或 file
+    # 存储类型: file, mysql, redis
     type: file
     # 文件存储目录（当 type=file 时使用）
     file-dir: ./chat-memory
+    # Redis 配置（当 type=redis 时使用）
+    redis:
+      key-prefix: "chat:memory:"
+      ttl-hours: 24

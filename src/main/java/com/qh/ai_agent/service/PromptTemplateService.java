@@ -9,7 +9,9 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -80,6 +82,27 @@ public class PromptTemplateService {
      */
     public Map<String, PromptTemplate> getCachedTemplates() {
         return new HashMap<>(templateCache);
+    }
+
+    /**
+     * 获取所有可用模板名称
+     */
+    public List<String> listTemplateNames() {
+        preloadTemplates();
+        return new ArrayList<>(templateCache.keySet());
+    }
+
+    /**
+     * 获取所有模板名称及预览内容
+     */
+    public Map<String, String> listTemplatesWithPreview() {
+        preloadTemplates();
+        Map<String, String> previews = new HashMap<>();
+        templateCache.forEach((name, template) -> {
+            String content = template.getContent();
+            previews.put(name, content.length() > 100 ? content.substring(0, 100) + "..." : content);
+        });
+        return previews;
     }
 
     private PromptTemplate loadTemplateFromFile(String name) {

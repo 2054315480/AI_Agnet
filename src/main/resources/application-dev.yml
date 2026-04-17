@@ -1,0 +1,23 @@
+# ==============================================================
+# 开发环境配置（省钱模式）—— 使用百炼平台免费额度模型
+# 激活方式：将 application.yml 中的 spring.profiles.active 改为 "local,dev"
+# ==============================================================
+
+spring:
+  ai:
+    dashscope:
+      chat:
+        options:
+          # 百炼平台免费额度模型，按需切换
+          # MiniMax-M2.1: 100万免费token（适合日常测试对话）
+          # qwen-turbo: 阿里云最便宜的千问模型（速度快，适合调试）
+          # qwen3-235b-a22b: 千问3 MoE模型（有免费额度，效果好）
+          model: MiniMax-M2.1
+          # 部分模型（MiniMax-M2.1、qwen3系列）强制要求开启思考模式
+          enable-thinking: true
+      image:
+        options:
+          # 视觉模型（图片理解）——必须是视觉语言模型(VL)，不能是生成模型
+          # qwen-vl-plus: 较便宜，效果好（推荐测试用）
+          # qwen3-vl-plus: 最新版，效果最好（生产用）
+          model: qwen-vl-plus

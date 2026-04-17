@@ -1,6 +1,28 @@
 <template>
   <div class="chat-input-wrap">
+    <!-- 图片预览区域 -->
+    <div v-if="imagePreview" class="image-preview-area">
+      <div class="image-preview-item">
+        <img :src="imagePreview" alt="preview" />
+        <button class="remove-image" @click="clearImage">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+    </div>
     <div class="input-container">
+      <!-- 图片上传按钮 -->
+      <button class="attach-btn" @click="triggerFileInput" :disabled="disabled" title="上传图片">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+          <circle cx="8.5" cy="8.5" r="1.5"/>
+          <polyline points="21 15 16 10 5 21"/>
+        </svg>
+      </button>
+      <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
+             @change="handleImageSelect" style="display:none" />
       <textarea
         ref="inputRef"
         v-model="text"
@@ -12,8 +34,8 @@
       />
       <button
         class="send-btn"
-        :class="{ active: text.trim() && !disabled }"
-        :disabled="disabled || !text.trim()"
+        :class="{ active: (text.trim() || imageFile) && !disabled }"
+        :disabled="disabled || (!text.trim() && !imageFile)"
         @click="handleSend"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -37,13 +59,38 @@ const props = defineProps({
 const emit = defineEmits(['send'])
 const text = ref('')
 const inputRef = ref(null)
+const fileInput = ref(null)
+const imageFile = ref(null)
+const imagePreview = ref(null)
+
+function triggerFileInput() {
+  fileInput.value?.click()
+}
+
+function handleImageSelect(event) {
+  const file = event.target.files[0]
+  if (file && file.type.startsWith('image/')) {
+    imageFile.value = file
+    imagePreview.value = URL.createObjectURL(file)
+  }
+}
+
+function clearImage() {
+  if (imagePreview.value) {
+    URL.revokeObjectURL(imagePreview.value)
+  }
+  imageFile.value = null
+  imagePreview.value = null
+  if (fileInput.value) fileInput.value.value = ''
+}
 
 function handleSend(e) {
   if (e) e.preventDefault()
   const msg = text.value.trim()
-  if (!msg || props.disabled) return
-  emit('send', msg)
+  if ((!msg && !imageFile.value) || props.disabled) return
+  emit('send', msg, imageFile.value)
   text.value = ''
+  clearImage()
   nextTick(() => autoResize())
 }
 
@@ -62,6 +109,45 @@ defineExpose({ focus: () => inputRef.value?.focus() })
   width: 100%;
 }
 
+.image-preview-area {
+  padding: 0 4px 8px 4px;
+}
+
+.image-preview-item {
+  position: relative;
+  display: inline-block;
+}
+
+.image-preview-item img {
+  max-width: 120px;
+  max-height: 80px;
+  border-radius: 8px;
+  border: 1px solid var(--border-input);
+  object-fit: cover;
+}
+
+.remove-image {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.remove-image svg {
+  width: 12px;
+  height: 12px;
+}
+
 .input-container {
   display: flex;
   align-items: flex-end;
@@ -69,13 +155,43 @@ defineExpose({ focus: () => inputRef.value?.focus() })
   background: var(--bg-input);
   border: 1.5px solid var(--border-input);
   border-radius: 24px;
-  padding: 6px 6px 6px 18px;
+  padding: 6px 6px 6px 6px;
   transition: border-color 0.2s, background 0.2s;
 }
 
 .input-container:focus-within {
   border-color: var(--border-input-focus);
   background: var(--bg-input-focus);
+}
+
+.attach-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-tertiary);
+  border: none;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.attach-btn:hover:not(:disabled) {
+  color: var(--accent-primary);
+  background: var(--bg-hover);
+}
+
+.attach-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.attach-btn svg {
+  width: 20px;
+  height: 20px;
 }
 
 textarea {
@@ -131,7 +247,7 @@ textarea:disabled {
 
 @media (max-width: 768px) {
   .input-container {
-    padding: 5px 5px 5px 14px;
+    padding: 5px 5px 5px 4px;
   }
 }
 </style>

@@ -2,6 +2,9 @@ package com.qh.ai_agent.model;
 
 import lombok.Data;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -52,6 +55,21 @@ public class PromptTemplate {
      */
     public String render(Map<String, Object> vars) {
         this.variables = vars;
+        return render();
+    }
+
+    /**
+     * 渲染模板，自动注入内置变量（current_date, current_time 等），
+     * 再用用户变量覆盖。
+     */
+    public String renderWithDefaults(Map<String, Object> userVariables) {
+        Map<String, Object> allVars = new HashMap<>();
+        allVars.put("current_date", LocalDate.now().toString());
+        allVars.put("current_time", LocalTime.now().withNano(0).toString());
+        if (userVariables != null) {
+            allVars.putAll(userVariables);
+        }
+        this.variables = allVars;
         return render();
     }
 }
