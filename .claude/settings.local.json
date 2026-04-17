@@ -69,7 +69,12 @@
       "Bash(npx vite *)",
       "Bash(pkill -f \"vite\")",
       "Skill(claude-api)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(mkdir -p /tmp/dashscope-decompile)",
+      "Read(//tmp/**)",
+      "Bash(grep -n 'convertMediaContent\\\\|lambda$convertMediaContent')",
+      "Bash(mkdir -p /tmp/spring-ai-decompile)",
+      "Bash(jar xf *)"
     ]
   }
 }

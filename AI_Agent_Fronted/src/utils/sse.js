@@ -105,3 +105,71 @@ function parseSSELines(text) {
   }
   return results
 }
+
+/**
+ * 通过 POST multipart/form-data 发起 SSE 流式请求
+ * 用于图片上传 + SSE 流式响应场景
+ * @param {string} url - 请求地址
+ * @param {FormData} formData - 表单数据
+ * @param {Object} callbacks - 回调函数集合
+ * @returns {AbortController} 用于取消请求
+ */
+export function fetchMultipartSSE(url, formData, { onMessage, onComplete, onError }) {
+  const controller = new AbortController()
+
+  fetch(url, {
+    method: 'POST',
+    body: formData,
+    signal: controller.signal,
+    headers: {
+      'Accept': 'text/event-stream'
+    }
+  })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      function read() {
+        reader.read().then(({ done, value }) => {
+          if (done) {
+            if (buffer.trim()) {
+              parseSSELines(buffer).forEach(line => {
+                if (line) onMessage(line)
+              })
+            }
+            onComplete && onComplete()
+            return
+          }
+
+          buffer += decoder.decode(value, { stream: true })
+          const parts = buffer.split('\n\n')
+          buffer = parts.pop()
+
+          for (const part of parts) {
+            const data = parseSSEEvent(part)
+            if (data !== null) {
+              onMessage(data)
+            }
+          }
+
+          read()
+        }).catch(err => {
+          if (err.name === 'AbortError') return
+          onError && onError(err)
+        })
+      }
+
+      read()
+    })
+    .catch(err => {
+      if (err.name === 'AbortError') return
+      onError && onError(err)
+    })
+
+  return controller
+}

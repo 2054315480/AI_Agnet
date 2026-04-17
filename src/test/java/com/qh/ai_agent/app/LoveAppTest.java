@@ -22,7 +22,7 @@ class LoveAppTest {
     void testChat() {
         String chatId = UUID.randomUUID().toString();
         // 第一轮
-        String message = "你好，我是秋鹤，我是一个应届毕业生";
+        String message = "你好，我是秋鹤，你是谁";
         String answer = loveApp.doChat(message, chatId);
 
 

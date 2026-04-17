@@ -69,8 +69,8 @@ const inputPlaceholder = computed(() =>
     : '输入你的任务需求...'
 )
 
-function handleSend(text) {
-  sendMessage(text)
+function handleSend(text, imageFile) {
+  sendMessage(text, imageFile)
   // Force scroll to bottom after sending a message
   scrollToBottom(true)
 }

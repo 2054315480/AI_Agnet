@@ -6,11 +6,13 @@ import com.qh.ai_agent.advisor.BannedWordAdvisor;
 import com.qh.ai_agent.advisor.My_loggerAdvisor;
 import com.qh.ai_agent.advisor.PermissionAdvisor;
 import com.qh.ai_agent.advisor.ReReadingAdvisor;
+import com.qh.ai_agent.advisor.SensitiveInfoAdvisor;
 import com.qh.ai_agent.chatmemory.FileBasedChatMemory;
 import com.qh.ai_agent.rag.LoveAppRagCustomAdvisorFactory;
 import com.qh.ai_agent.rag.QueryReweiter;
 import com.qh.ai_agent.service.BannedWordService;
 import com.qh.ai_agent.service.PromptTemplateService;
+import com.qh.ai_agent.service.SensitiveInfoService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -25,6 +27,7 @@ import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.PromptTemplate;
+import org.springframework.ai.content.Media;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.support.ToolCallbacks;
@@ -61,7 +64,7 @@ public class LoveApp {
     /*
      初始化 AI 客户端
      */
-    public  LoveApp(ChatModel dashscopChatModel, BannedWordService bannedWordService, ChatMemory chatMemory, PromptTemplateService promptTemplateService)  {
+    public  LoveApp(ChatModel dashscopChatModel, BannedWordService bannedWordService, ChatMemory chatMemory, PromptTemplateService promptTemplateService, SensitiveInfoService sensitiveInfoService)  {
         this.promptTemplateService = promptTemplateService;
 
         // 创建对话记忆 Advisor（使用注入的 ChatMemory Bean）
@@ -77,6 +80,14 @@ public class LoveApp {
                 .order(-100)
                 .build();
 
+        // 创建敏感信息脱敏 Advisor
+        SensitiveInfoAdvisor sensitiveInfoAdvisor
+                = SensitiveInfoAdvisor.builder()
+                .sensitiveInfoService(sensitiveInfoService)
+                .maskResponse(true)
+                .order(-75)
+                .build();
+
         // 创建违禁词校验 Advisor
         BannedWordAdvisor bannedWordAdvisor
                 = BannedWordAdvisor.builder()
@@ -89,6 +100,7 @@ public class LoveApp {
                 .defaultSystem(loadSystemPrompt())
                 .defaultAdvisors(
                         permissionAdvisor,
+                        sensitiveInfoAdvisor,
                         bannedWordAdvisor,
                         memoryAdvisor,
                         new My_loggerAdvisor(99)
@@ -147,6 +159,65 @@ AI 基础对话，支持多轮对话 支持SSE流式传输
                         )
                         .stream()
                         .content();
+    }
+
+    /**
+     * AI 图片对话（SSE 流式），支持用户同时发送文字和图片
+     */
+    public Flux<String> doChatWithImageByStream(String message, String chatId, Media... media) {
+        log.info("doChatWithImageByStream - chatId: {}, message: {}, images: {}", chatId, message, media != null ? media.length : 0);
+        if (chatId == null || chatId.trim().isEmpty()) {
+            throw new IllegalArgumentException("chatId 不能为空");
+        }
+
+        String rewrittenMessage = queryReweiter.doQueryReweiter(message);
+
+        return chatClient
+                .prompt()
+                .user(u -> {
+                    u.text(rewrittenMessage);
+                    if (media != null) {
+                        for (Media m : media) {
+                            u.media(m);
+                        }
+                    }
+                })
+                .advisors(spec -> spec
+                        .param("chat_memory_conversation_id", chatId)
+                )
+                .stream()
+                .content();
+    }
+
+    /**
+     * AI 图片对话（同步），支持用户同时发送文字和图片
+     */
+    public String doChatWithImage(String message, String chatId, Media... media) {
+        log.info("doChatWithImage - chatId: {}, message: {}, images: {}", chatId, message, media != null ? media.length : 0);
+        if (chatId == null || chatId.trim().isEmpty()) {
+            throw new IllegalArgumentException("chatId 不能为空");
+        }
+
+        String rewrittenMessage = queryReweiter.doQueryReweiter(message);
+
+        ChatResponse chatResponse = chatClient
+                .prompt()
+                .user(u -> {
+                    u.text(rewrittenMessage);
+                    if (media != null) {
+                        for (Media m : media) {
+                            u.media(m);
+                        }
+                    }
+                })
+                .advisors(spec -> spec
+                        .param("chat_memory_conversation_id", chatId)
+                )
+                .call()
+                .chatResponse();
+        String content = chatResponse.getResult().getOutput().getText();
+        log.info("content:{}", content);
+        return content;
     }
 
 

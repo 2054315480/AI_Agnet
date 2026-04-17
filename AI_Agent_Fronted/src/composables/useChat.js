@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { useConversations } from './useConversations.js'
-import { chatLoveStream, chatManusStream } from '../api/chat.js'
+import { chatLoveStream, chatLoveStreamWithImage, chatManusStream, chatManusStreamWithImage } from '../api/chat.js'
 
 export function useChat() {
   const {
@@ -14,8 +14,8 @@ export function useChat() {
   const isLoading = ref(false)
   let abortController = null
 
-  function sendMessage(text) {
-    if (!text.trim() || isLoading.value) return
+  function sendMessage(text, imageFile) {
+    if ((!text.trim() && !imageFile) || isLoading.value) return
 
     let conv = activeConversation.value
     // Create conversation if none exists
@@ -25,8 +25,12 @@ export function useChat() {
 
     const convId = conv.id
 
-    // Add user message
-    addMessage(convId, { content: text, isUser: true })
+    // Add user message with optional image indicator
+    addMessage(convId, {
+      content: text || '(图片)',
+      isUser: true,
+      hasImage: !!imageFile
+    })
 
     // Add AI placeholder
     addMessage(convId, { content: '', isUser: false, loading: true, thinkingSteps: [] })
@@ -34,56 +38,91 @@ export function useChat() {
     isLoading.value = true
 
     if (activeAgent.value === 'love') {
-      sendLoveMessage(text, convId)
+      sendLoveMessage(text, convId, imageFile)
     } else {
-      sendManusMessage(text, convId)
+      sendManusMessage(text, convId, imageFile)
     }
   }
 
-  function sendLoveMessage(text, convId) {
-    abortController = chatLoveStream(text, convId, {
-      onChunk(data) {
-        // Append text to the same AI message bubble
-        const lastMsg = getLastMsg(convId)
-        if (lastMsg && !lastMsg.isUser) {
-          updateLastMessage(convId, {
-            content: lastMsg.content + data,
-            loading: true
-          })
+  function sendLoveMessage(text, convId, imageFile) {
+    if (imageFile) {
+      abortController = chatLoveStreamWithImage(text, convId, imageFile, {
+        onChunk(data) {
+          const lastMsg = getLastMsg(convId)
+          if (lastMsg && !lastMsg.isUser) {
+            updateLastMessage(convId, {
+              content: lastMsg.content + data,
+              loading: true
+            })
+          }
+        },
+        onComplete() {
+          const lastMsg = getLastMsg(convId)
+          if (lastMsg && !lastMsg.isUser) {
+            updateLastMessage(convId, { loading: false, time: currentTime() })
+          }
+          isLoading.value = false
+          abortController = null
+        },
+        onError(err) {
+          const lastMsg = getLastMsg(convId)
+          if (lastMsg && !lastMsg.isUser) {
+            updateLastMessage(convId, {
+              content: `抱歉，发生了错误：${err.message}`,
+              loading: false,
+              time: currentTime()
+            })
+          }
+          isLoading.value = false
+          abortController = null
         }
-      },
-      onComplete() {
-        const lastMsg = getLastMsg(convId)
-        if (lastMsg && !lastMsg.isUser) {
-          updateLastMessage(convId, { loading: false, time: currentTime() })
+      })
+    } else {
+      abortController = chatLoveStream(text, convId, {
+        onChunk(data) {
+          const lastMsg = getLastMsg(convId)
+          if (lastMsg && !lastMsg.isUser) {
+            updateLastMessage(convId, {
+              content: lastMsg.content + data,
+              loading: true
+            })
+          }
+        },
+        onComplete() {
+          const lastMsg = getLastMsg(convId)
+          if (lastMsg && !lastMsg.isUser) {
+            updateLastMessage(convId, { loading: false, time: currentTime() })
+          }
+          isLoading.value = false
+          abortController = null
+        },
+        onError(err) {
+          const lastMsg = getLastMsg(convId)
+          if (lastMsg && !lastMsg.isUser) {
+            updateLastMessage(convId, {
+              content: `抱歉，发生了错误：${err.message}`,
+              loading: false,
+              time: currentTime()
+            })
+          }
+          isLoading.value = false
+          abortController = null
         }
-        isLoading.value = false
-        abortController = null
-      },
-      onError(err) {
-        const lastMsg = getLastMsg(convId)
-        if (lastMsg && !lastMsg.isUser) {
-          updateLastMessage(convId, {
-            content: `抱歉，发生了错误：${err.message}`,
-            loading: false,
-            time: currentTime()
-          })
-        }
-        isLoading.value = false
-        abortController = null
-      }
-    })
+      })
+    }
   }
 
-  function sendManusMessage(text, convId) {
-    abortController = chatManusStream(text, {
+  function sendManusMessage(text, convId, imageFile) {
+    const streamFn = imageFile
+      ? (msg, cb) => chatManusStreamWithImage(msg, imageFile, cb)
+      : (msg, cb) => chatManusStream(msg, cb)
+
+    abortController = streamFn(text, {
       onStep(rawData) {
-        // Try to parse as JSON event
         let event = null
         try {
           event = JSON.parse(rawData)
         } catch (e) {
-          // Not JSON — treat as plain text (backward compat)
           event = { type: 'thinking', content: rawData }
         }
 
@@ -91,14 +130,11 @@ export function useChat() {
         if (!lastMsg || lastMsg.isUser) return
 
         if (event.type === 'tool_call' || event.type === 'tool_result' || event.type === 'thinking') {
-          // Accumulate into thinkingSteps
           const steps = [...(lastMsg.thinkingSteps || []), { type: event.type, content: event.content }]
           updateLastMessage(convId, { thinkingSteps: steps, loading: true })
         } else if (event.type === 'answer') {
-          // Update main content with the final answer
           updateLastMessage(convId, { content: event.content, loading: true })
         } else if (event.type === 'done') {
-          // Stream complete
           updateLastMessage(convId, { loading: false, time: currentTime() })
         }
       },

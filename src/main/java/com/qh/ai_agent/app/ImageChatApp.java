@@ -1,17 +1,14 @@
 package com.qh.ai_agent.app;
 
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
+import com.qh.ai_agent.service.PromptTemplateService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.content.Media;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.MimeType;
-
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 
 /**
  * 图片对话应用，支持多模态图片理解
@@ -22,40 +19,34 @@ public class ImageChatApp {
 
     private final ChatClient chatClient;
     private final String systemPrompt;
+    private final String visionModel;
 
     public ImageChatApp(ChatModel chatModel,
-                        @Value("classpath:prompts/image-analyst.txt") Resource systemPromptResource) throws IOException {
-        log.info("初始化 ImageChatApp，使用的 ChatModel 类型: {}", chatModel.getClass().getName());
+                        PromptTemplateService promptTemplateService,
+                        @Value("${spring.ai.dashscope.image.options.model:qwen-vl-plus}") String visionModel) {
+        log.info("初始化 ImageChatApp，ChatModel 类型: {}, 视觉模型: {}", chatModel.getClass().getName(), visionModel);
         this.chatClient = ChatClient.builder(chatModel).build();
-        this.systemPrompt = systemPromptResource.exists() ?
-            systemPromptResource.getContentAsString(StandardCharsets.UTF_8) : getDefaultSystemPrompt();
+        this.visionModel = visionModel;
+        this.systemPrompt = promptTemplateService.loadTemplate("image-analyst")
+                .renderWithDefaults(null);
         log.info("ImageChatApp 初始化完成，系统提示词长度: {}", systemPrompt.length());
     }
 
     /**
      * 解释图片（通过URL）
+     * 先下载图片为字节数组，再以 base64 方式发送给百炼 API
      */
     public String explainImage(String imageUrl, String question) {
-        log.info("解释图片 - URL: {}, 问题: {}", imageUrl, question);
+        log.info("解释图片 - URL: {}, 问题: {}, 视觉模型: {}", imageUrl, question, visionModel);
 
         try {
-            // 根据URL判断图片类型
-            String mimeType = detectMimeTypeFromUrl(imageUrl);
+            // 先下载图片到字节数组，避免 URL 兼容性问题
+            java.net.URL url = new java.net.URI(imageUrl).toURL();
+            byte[] imageData = url.openStream().readAllBytes();
+            log.info("图片下载成功，大小: {} bytes", imageData.length);
 
-            // 创建 Media 对象，使用 URI
-            Media media = new Media(MimeType.valueOf(mimeType), new java.net.URI(imageUrl));
-
-            String response = chatClient.prompt()
-                .system(systemPrompt)
-                .user(u -> u
-                    .text(question)
-                    .media(media)
-                )
-                .call()
-                .content();
-
-            log.info("图片解释完成，响应长度: {}", response.length());
-            return response;
+            // 委托给字节数组方法
+            return explainImage(imageData, question);
         } catch (Exception e) {
             log.error("解释图片失败", e);
             throw new RuntimeException("解释图片失败: " + e.getMessage(), e);
@@ -83,33 +74,26 @@ public class ImageChatApp {
      * 解释图片（通过字节数组，自动检测图片类型）
      */
     public String explainImage(byte[] imageData, String question) {
-        log.info("解释图片 - 数据大小: {} bytes, 问题: {}", imageData.length, question);
+        log.info("解释图片 - 数据大小: {} bytes, 问题: {}, 视觉模型: {}", imageData.length, question, visionModel);
 
         try {
             // 根据文件头判断图片类型
             String mimeType = detectMimeType(imageData);
             log.info("检测到图片类型: {}", mimeType);
 
-            // 创建 Resource 对象
-            org.springframework.core.io.Resource imageResource =
-                new org.springframework.core.io.ByteArrayResource(imageData) {
-                    @Override
-                    public String getFilename() {
-                        String extension = switch (mimeType) {
-                            case "image/png" -> "png";
-                            case "image/gif" -> "gif";
-                            case "image/webp" -> "webp";
-                            case "image/bmp" -> "bmp";
-                            default -> "jpg";
-                        };
-                        return "image." + extension;
-                    }
-                };
-
-            // 创建 Media 对象
-            Media media = new Media(MimeType.valueOf(mimeType), imageResource);
+            // 关键：用 Media.builder().data(byte[]) 传入字节数组
+            // 不能用 new Media(MimeType, Resource)，因为 DashScope 的 fromMediaData 只处理 byte[] 和 String
+            Media media = Media.builder()
+                    .mimeType(MimeType.valueOf(mimeType))
+                    .data(imageData)
+                    .build();
 
             String response = chatClient.prompt()
+                .options(DashScopeChatOptions.builder()
+                    .withModel(visionModel)
+                    .withMultiModel(true)
+                    .withEnableThinking(false)
+                    .build())
                 .system(systemPrompt)
                 .user(u -> u
                     .text(question)
@@ -165,9 +149,5 @@ public class ImageChatApp {
         }
 
         return "image/jpeg"; // 默认使用 JPEG
-    }
-
-    private String getDefaultSystemPrompt() {
-        return "你是一位专业的图片分析师，擅长详细描述图片内容、分析图片中的元素并提供深入的见解。";
     }
 }
