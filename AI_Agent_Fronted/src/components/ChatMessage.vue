@@ -74,8 +74,12 @@
       </div>
 
       <!-- Main content bubble -->
-      <div v-if="content || (loading && !hasThinkingSteps)" class="bubble" :class="{ 'is-loading': loading && !content }">
+      <div v-if="imageUrl || content || (loading && !hasThinkingSteps)" class="bubble" :class="{ 'is-loading': loading && !content }">
+        <div v-if="imageUrl" class="bubble-image">
+          <img :src="imageUrl" alt="用户上传的图片" @click="previewFullImage" />
+        </div>
         <div
+          v-if="content"
           class="bubble-text"
           :class="{ 'streaming-cursor': loading && content }"
           v-html="renderedContent"
@@ -86,6 +90,13 @@
       </div>
       <div v-if="time" class="msg-time">{{ time }}</div>
     </div>
+
+    <!-- Full-screen image preview overlay -->
+    <Teleport to="body">
+      <div v-if="showPreview" class="image-preview-overlay" @click="showPreview = false">
+        <img :src="imageUrl" alt="预览" class="image-preview-full" @click.stop />
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -105,11 +116,17 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   stepLabel: { type: String, default: '' },
   thinkingSteps: { type: Array, default: () => [] },
+  imageUrl: { type: String, default: '' },
   time: { type: String, default: '' }
 })
 
 const thinkingOpen = ref(false)
 const thinkingBodyRef = ref(null)
+const showPreview = ref(false)
+
+function previewFullImage() {
+  showPreview.value = true
+}
 
 const hasThinkingSteps = computed(() => props.thinkingSteps && props.thinkingSteps.length > 0)
 
@@ -466,8 +483,8 @@ const renderedContent = computed(() => {
 .bubble-text :deep(h3) { font-size: 1.02em; }
 
 .bubble-text :deep(p) {
-  margin: 6px 0;
-  line-height: 1.7;
+  margin: 8px 0;
+  line-height: 1.75;
 }
 
 .bubble-text :deep(p:first-child) {
@@ -480,13 +497,17 @@ const renderedContent = computed(() => {
 
 .bubble-text :deep(ul),
 .bubble-text :deep(ol) {
-  margin: 6px 0;
-  padding-left: 20px;
+  margin: 8px 0;
+  padding-left: 22px;
 }
 
 .bubble-text :deep(li) {
-  margin: 3px 0;
-  line-height: 1.6;
+  margin: 4px 0;
+  line-height: 1.65;
+}
+
+.bubble-text :deep(li)::marker {
+  color: var(--text-tertiary);
 }
 
 .bubble-text :deep(blockquote) {
@@ -535,6 +556,44 @@ const renderedContent = computed(() => {
 .bubble-text :deep(th) {
   background: var(--bg-hover);
   font-weight: 600;
+}
+
+/* ===== Bubble image ===== */
+.bubble-image {
+  margin-bottom: 6px;
+}
+
+.bubble-image img {
+  max-width: 200px;
+  max-height: 150px;
+  border-radius: 8px;
+  cursor: pointer;
+  object-fit: cover;
+  transition: opacity 0.2s;
+}
+
+.bubble-image img:hover {
+  opacity: 0.85;
+}
+
+/* ===== Full-screen image preview ===== */
+.image-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  animation: fadeIn 0.2s ease;
+}
+
+.image-preview-full {
+  max-width: 90vw;
+  max-height: 90vh;
+  border-radius: 8px;
+  object-fit: contain;
 }
 
 /* ===== Time ===== */

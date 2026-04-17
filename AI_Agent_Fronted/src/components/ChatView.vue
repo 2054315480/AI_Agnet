@@ -27,6 +27,7 @@
           :loading="msg.loading"
           :step-label="msg.stepLabel"
           :thinking-steps="msg.thinkingSteps || []"
+          :image-url="msg.imageUrl"
           :time="msg.time"
           :agent="activeAgent"
         />
@@ -69,8 +70,8 @@ const inputPlaceholder = computed(() =>
     : '输入你的任务需求...'
 )
 
-function handleSend(text, imageFile) {
-  sendMessage(text, imageFile)
+function handleSend(text, imageFile, imageUrl) {
+  sendMessage(text, imageFile, imageUrl)
   // Force scroll to bottom after sending a message
   scrollToBottom(true)
 }

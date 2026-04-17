@@ -143,6 +143,7 @@ export function useConversations() {
       loading: message.loading ?? false,
       stepLabel: message.stepLabel || '',
       thinkingSteps: message.thinkingSteps || [],
+      imageUrl: message.imageUrl || null,
       time: message.time || formatTime(Date.now()),
       timestamp: Date.now()
     }

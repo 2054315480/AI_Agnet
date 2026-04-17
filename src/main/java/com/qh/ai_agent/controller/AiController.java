@@ -9,6 +9,7 @@ import jakarta.annotation.Resource;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.content.Media;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -42,8 +43,25 @@ public class AiController {
     @Resource
     private SensitiveInfoService sensitiveInfoService;
 
+    @Resource
+    private ToolCallbackProvider toolCallbackProvider;
+
     @Value("${spring.ai.dashscope.image.options.model:qwen-vl-plus}")
     private String visionModel;
+
+    @Value("${spring.ai.dashscope.chat.options.enable-thinking:true}")
+    private boolean chatEnableThinking;
+
+    /**
+     * 合并本地工具和 MCP 工具
+     */
+    private ToolCallback[] getAllToolsWithMcp() {
+        ToolCallback[] mcpCallbacks = toolCallbackProvider.getToolCallbacks();
+        ToolCallback[] merged = new ToolCallback[allTools.length + mcpCallbacks.length];
+        System.arraycopy(allTools, 0, merged, 0, allTools.length);
+        System.arraycopy(mcpCallbacks, 0, merged, allTools.length, mcpCallbacks.length);
+        return merged;
+    }
 
     /**
      * 同步调用AI 的恋爱大师方法
@@ -142,8 +160,9 @@ public class AiController {
      */
     @GetMapping("/manus/chat")
     public SseEmitter doChatWithManus(String message) {
-        HeManus heManus = new HeManus(allTools,dashscopeChatModel, promptTemplateService, sensitiveInfoService);
+        HeManus heManus = new HeManus(getAllToolsWithMcp(), dashscopeChatModel, promptTemplateService, sensitiveInfoService);
         heManus.setVisionModel(visionModel);
+        heManus.setChatEnableThinking(chatEnableThinking);
         return heManus.runStream(message);
 
     }
@@ -156,8 +175,9 @@ public class AiController {
             @RequestParam("message") String message,
             @RequestParam(value = "image", required = false) MultipartFile image) {
 
-        HeManus heManus = new HeManus(allTools, dashscopeChatModel, promptTemplateService, sensitiveInfoService);
+        HeManus heManus = new HeManus(getAllToolsWithMcp(), dashscopeChatModel, promptTemplateService, sensitiveInfoService);
         heManus.setVisionModel(visionModel);
+        heManus.setChatEnableThinking(chatEnableThinking);
 
         if (image != null && !image.isEmpty()) {
             try {

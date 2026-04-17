@@ -76,32 +76,31 @@ export function fetchSSE(url, { onMessage, onComplete, onError }) {
 
 /**
  * 解析单个 SSE 事件块，提取 data 字段
+ * SSE 规范：同一事件中的多个 data: 行用 \n 拼接
  */
 function parseSSEEvent(chunk) {
   const lines = chunk.split('\n')
+  const dataParts = []
   for (const line of lines) {
     if (line.startsWith('data:')) {
-      const data = line.slice(5).trim()
-      if (data === '[DONE]') return null
-      return data
+      dataParts.push(line.slice(5))
     }
   }
-  return null
+  if (dataParts.length === 0) return null
+  if (dataParts.length === 1 && dataParts[0].trim() === '[DONE]') return null
+  return dataParts.join('\n')
 }
 
 /**
- * 解析多行 SSE 文本
+ * 解析多行 SSE 文本（流结束时残留 buffer）
  */
 function parseSSELines(text) {
   const results = []
-  const lines = text.split('\n')
-  for (const line of lines) {
-    if (line.startsWith('data:')) {
-      const data = line.slice(5).trim()
-      if (data && data !== '[DONE]') {
-        results.push(data)
-      }
-    }
+  const events = text.split('\n\n')
+  for (const event of events) {
+    if (!event.trim()) continue
+    const data = parseSSEEvent(event)
+    if (data) results.push(data)
   }
   return results
 }

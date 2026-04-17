@@ -67,9 +67,14 @@ public class LoveApp {
      初始化 AI 客户端
      */
     public  LoveApp(ChatModel dashscopChatModel, BannedWordService bannedWordService, ChatMemory chatMemory, PromptTemplateService promptTemplateService, SensitiveInfoService sensitiveInfoService,
-                     @Value("${spring.ai.dashscope.image.options.model:qwen-vl-plus}") String visionModel)  {
+                     @Value("${spring.ai.dashscope.image.options.model:qwen-vl-plus}") String visionModel,
+                     ToolCallbackProvider toolCallbackProvider)  {
         this.promptTemplateService = promptTemplateService;
         this.visionModel = visionModel;
+
+        // 获取 MCP 工具（高德地图、图片搜索等）
+        ToolCallback[] mcpCallbacks = toolCallbackProvider.getToolCallbacks();
+        log.info("LoveApp 加载 MCP 工具数量: {}", mcpCallbacks.length);
 
         // 创建对话记忆 Advisor（使用注入的 ChatMemory Bean）
         MessageChatMemoryAdvisor memoryAdvisor =
@@ -109,6 +114,7 @@ public class LoveApp {
                         memoryAdvisor,
                         new My_loggerAdvisor(99)
                 )
+                .defaultToolCallbacks(mcpCallbacks)
                 .build();
     }
     /*
@@ -128,10 +134,11 @@ public class LoveApp {
         ChatResponse chatResponse =
         chatClient
                 .prompt()
-                // 使用改写后的查询
+                .system(buildRagSystemPrompt())
                 .user(rewrittenMessage)
                 .advisors(spec -> spec
                 .param("chat_memory_conversation_id", chatId)
+                .advisors(buildRagAdvisor())
                 )
                 .call()
                 .chatResponse();
@@ -156,10 +163,11 @@ AI 基础对话，支持多轮对话 支持SSE流式传输
 
         return chatClient
                         .prompt()
-                        // 使用改写后的查询
+                        .system(buildRagSystemPrompt())
                         .user(rewrittenMessage)
                         .advisors(spec -> spec
                                 .param("chat_memory_conversation_id", chatId)
+                                .advisors(buildRagAdvisor())
                         )
                         .stream()
                         .content();
@@ -232,6 +240,34 @@ AI 基础对话，支持多轮对话 支持SSE流式传输
         String content = chatResponse.getResult().getOutput().getText();
         log.info("content:{}", content);
         return content;
+    }
+
+    /**
+     * RAG 增强的系统提示词
+     */
+    private String buildRagSystemPrompt() {
+        return loadSystemPrompt() +
+                "\n\n## 知识库使用规则\n" +
+                "1. 当回答用户问题时，你会收到来自专业知识库的相关内容\n" +
+                "2. **必须严格基于知识库内容回答**，这是专业恋爱咨询的核心资料\n" +
+                "3. 如果知识库中包含具体案例（如小王、小李、小张、小赵、小钱等），**必须在回答中引用**\n" +
+                "4. 如果知识库中推荐了课程链接（包含gitee.com的链接），**必须在回答末尾完整保留**\n" +
+                "5. 在回答开头或适当位置使用「根据专业建议」「课程推荐」等标识\n" +
+                "6. 知识库内容与通用知识冲突时，**以知识库为准**";
+    }
+
+    /**
+     * 构建 RAG 检索增强 Advisor（基于内存向量库）
+     */
+    private Advisor buildRagAdvisor() {
+        return RetrievalAugmentationAdvisor.builder()
+                .documentRetriever(new VectorStoreDocumentRetriever(
+                        loveAppVectorStore,
+                        0.3,
+                        6,
+                        () -> null
+                ))
+                .build();
     }
 
 
