@@ -1,0 +1,56 @@
+# ==============================================================
+# 生产环境配置
+# ==============================================================
+
+spring:
+  # 关闭 Redis 自动配置（生产环境不使用 Redis）
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+  # 本地 PostgreSQL（服务器上安装的）
+  datasource:
+    url: jdbc:postgresql://localhost:5432/Love_Agent
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+
+  # DashScope AI 配置
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:your_dashscope_api_key}
+      chat:
+        options:
+          model: qwen-plus
+      image:
+        options:
+          model: qwen-vl-plus
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+    mcp:
+      client:
+        request-timeout: 60s
+        stdio:
+          servers-configuration: classpath:MCP-servers.json
+
+# 自定义 AI 配置
+ai:
+  dashscope:
+    agent-key: ${DASHSCOPE_AGENT_KEY:your_agent_key}
+  bocha:
+    api-key: ${BOCHA_API_KEY:your_bocha_api_key}
+    api-url: https://api.bocha.cn/v1/web-search
+
+# HTTP 客户端（生产环境不需要代理）
+http:
+  client:
+    proxy-enabled: false
+    connect-timeout: 15000
+    read-timeout: 30000
+
+# 生产环境关闭 SQL 日志
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
