@@ -1,6 +1,15 @@
 import { fetchSSE, fetchMultipartSSE } from '../utils/sse.js'
+import { useAuth } from './auth.js'
 
 const API_BASE = '/api'
+
+function authHeaders() {
+  const { token } = useAuth()
+  if (token.value) {
+    return { 'Authorization': `Bearer ${token.value}` }
+  }
+  return {}
+}
 
 /**
  * 恋爱大师 SSE 流式对话
@@ -11,7 +20,8 @@ export function chatLoveStream(message, chatId, { onChunk, onComplete, onError }
   return fetchSSE(url, {
     onMessage: onChunk,
     onComplete,
-    onError
+    onError,
+    headers: authHeaders()
   })
 }
 
@@ -30,7 +40,8 @@ export function chatLoveStreamWithImage(message, chatId, imageFile, { onChunk, o
   return fetchMultipartSSE(url, formData, {
     onMessage: onChunk,
     onComplete,
-    onError
+    onError,
+    headers: authHeaders()
   })
 }
 
@@ -43,7 +54,8 @@ export function chatManusStream(message, { onStep, onComplete, onError }) {
   return fetchSSE(url, {
     onMessage: onStep,
     onComplete,
-    onError
+    onError,
+    headers: authHeaders()
   })
 }
 
@@ -61,6 +73,7 @@ export function chatManusStreamWithImage(message, imageFile, { onStep, onComplet
   return fetchMultipartSSE(url, formData, {
     onMessage: onStep,
     onComplete,
-    onError
+    onError,
+    headers: authHeaders()
   })
 }

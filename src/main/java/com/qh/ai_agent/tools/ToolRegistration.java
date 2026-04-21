@@ -19,7 +19,10 @@ public class ToolRegistration {
             ResourceDownloadTool resourceDownloadTool,
             TerminalOperationTool terminalOperationTool,
             TerminateTool terminateTool,
-            PDFGenerationTool pdfGenerationTool) {
+            PDFGenerationTool pdfGenerationTool,
+            DateTimeTool dateTimeTool,
+            DatabaseQueryTool databaseQueryTool,
+            PdfParseTool pdfParseTool) {
         return ToolCallbacks.from(
                 fileOperationTool,
                 webSearchTool,
@@ -27,7 +30,10 @@ public class ToolRegistration {
                 resourceDownloadTool,
                 terminalOperationTool,
                 terminateTool,
-                pdfGenerationTool
+                pdfGenerationTool,
+                dateTimeTool,
+                databaseQueryTool,
+                pdfParseTool
                 );
     }
 

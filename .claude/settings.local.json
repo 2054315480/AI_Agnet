@@ -74,7 +74,13 @@
       "Read(//tmp/**)",
       "Bash(grep -n 'convertMediaContent\\\\|lambda$convertMediaContent')",
       "Bash(mkdir -p /tmp/spring-ai-decompile)",
-      "Bash(jar xf *)"
+      "Bash(jar xf *)",
+      "Bash(grep -r \"timeout\" src/main/resources/application*.yml)",
+      "Bash(grep -r \"connection-timeout\\\\|connect-timeout\" src/main/resources/application*.yml)",
+      "Bash(mvn spring-boot:run -Dspring-boot.run.profiles=local,dev)",
+      "Bash(tasklist)",
+      "Bash(./mvnw dependency:tree -Dincludes=org.springframework.ai)",
+      "Bash(awk '{print $5}')"
     ]
   }
 }

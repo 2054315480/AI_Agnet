@@ -1,6 +1,6 @@
 <template>
   <div class="app-shell">
-    <Sidebar :open="sidebarOpen" @toggle="toggleSidebar" />
+    <Sidebar v-if="!isLoginPage" :open="sidebarOpen" @toggle="toggleSidebar" />
     <main class="main-area">
       <router-view />
     </main>
@@ -16,25 +16,42 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, provide } from 'vue'
+import { ref, computed, onMounted, onUnmounted, provide, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
 import { useConversations } from './composables/useConversations.js'
+import { useAuth } from './api/auth.js'
 
 const sidebarOpen = ref(true)
 const windowWidth = ref(window.innerWidth)
+const route = useRoute()
 
 const isMobile = computed(() => windowWidth.value < 768)
+const isLoginPage = computed(() => route.path === '/login')
+
+const { isAuthenticated, fetchUser } = useAuth()
+const { loadConversations } = useConversations()
 
 // On mobile, sidebar starts closed
-onMounted(() => {
+onMounted(async () => {
   if (window.innerWidth < 768) {
     sidebarOpen.value = false
   }
-  // Load conversations on app mount
-  const { loadConversations, conversations } = useConversations()
+
+  // Restore user session from token
+  await fetchUser()
+
+  // Load conversations (will use server API if authenticated)
   loadConversations()
 
   window.addEventListener('resize', handleResize)
+})
+
+// Reload conversations when auth state changes
+watch(isAuthenticated, (val) => {
+  if (val) {
+    loadConversations()
+  }
 })
 
 onUnmounted(() => {

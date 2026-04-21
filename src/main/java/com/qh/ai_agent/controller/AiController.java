@@ -3,6 +3,8 @@ package com.qh.ai_agent.controller;
 
 import com.qh.ai_agent.Agent.HeManus;
 import com.qh.ai_agent.app.LoveApp;
+import com.qh.ai_agent.rag.model.RagRequest;
+import com.qh.ai_agent.rag.reader.GitHubDocumentReader;
 import com.qh.ai_agent.service.PromptTemplateService;
 import com.qh.ai_agent.service.SensitiveInfoService;
 import jakarta.annotation.Resource;
@@ -19,6 +21,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Flux;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -212,6 +215,81 @@ public class AiController {
                 .mimeType(MimeType.valueOf(mimeType))
                 .data(imageData)
                 .build();
+    }
+
+    // ========== RAG 增强功能端点 ==========
+
+    @Resource
+    private GitHubDocumentReader gitHubDocumentReader;
+
+    /**
+     * GitHub 仓库 RAG 对话
+     */
+    @GetMapping("/rag/github")
+    public String chatWithGitHubRag(
+            @RequestParam String message,
+            @RequestParam String chatId,
+            @RequestParam String owner,
+            @RequestParam String repo) {
+        return loveApp.doChatWithGitHubRag(message, chatId, owner, repo);
+    }
+
+    /**
+     * 加载 GitHub 仓库文档到向量库
+     */
+    @PostMapping("/rag/github/load")
+    public Map<String, Object> loadGitHubRepo(@RequestBody Map<String, String> body) {
+        String owner = body.get("owner");
+        String repo = body.get("repo");
+        if (owner == null || repo == null || owner.isEmpty() || repo.isEmpty()) {
+            return Map.of("error", "owner 和 repo 不能为空");
+        }
+        List<org.springframework.ai.document.Document> docs = gitHubDocumentReader.loadRepository(owner, repo);
+        return Map.of("loaded", docs.size(), "owner", owner, "repo", repo);
+    }
+
+    /**
+     * 增强版 RAG 对话（支持元信息过滤）
+     */
+    @PostMapping("/rag/enhanced")
+    public String chatWithEnhancedRag(@RequestBody RagRequest request) {
+        return loveApp.doChatWithEnhancedRag(request);
+    }
+
+    // ========== 工具相关端点 ==========
+
+    @Resource
+    private com.qh.ai_agent.tools.PdfParseTool pdfParseTool;
+
+    /**
+     * 上传 PDF 文件并解析文本内容
+     */
+    @PostMapping("/tools/parse-pdf")
+    public Map<String, Object> parsePdf(@RequestParam("file") MultipartFile file) {
+        if (file.isEmpty()) {
+            return Map.of("error", "文件不能为空");
+        }
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.equals("application/pdf")) {
+            return Map.of("error", "仅支持 PDF 文件");
+        }
+        try {
+            // 保存到临时文件
+            File tmpDir = new File(System.getProperty("user.dir") + "/tmp/PDF/uploads");
+            if (!tmpDir.exists()) tmpDir.mkdirs();
+            File tmpFile = new File(tmpDir, file.getOriginalFilename());
+            file.transferTo(tmpFile);
+
+            // 解析
+            String text = pdfParseTool.parsePdf(tmpFile.getAbsolutePath());
+            return Map.of(
+                    "fileName", file.getOriginalFilename(),
+                    "text", text,
+                    "fileSize", file.getSize()
+            );
+        } catch (Exception e) {
+            return Map.of("error", "解析失败: " + e.getMessage());
+        }
     }
 
 }

@@ -11,6 +11,8 @@ import com.qh.ai_agent.advisor.SensitiveInfoAdvisor;
 import com.qh.ai_agent.chatmemory.FileBasedChatMemory;
 import com.qh.ai_agent.rag.LoveAppRagCustomAdvisorFactory;
 import com.qh.ai_agent.rag.QueryReweiter;
+import com.qh.ai_agent.rag.reader.GitHubDocumentReader;
+import com.qh.ai_agent.rag.model.RagRequest;
 import com.qh.ai_agent.service.BannedWordService;
 import com.qh.ai_agent.service.PromptTemplateService;
 import com.qh.ai_agent.service.SensitiveInfoService;
@@ -565,6 +567,93 @@ AI 恋爱报告功能，实战结构化输出
         log.info("content:{}",content);
         return content;
 
+    }
+
+    // ========== RAG 增强功能 ==========
+
+    @Resource
+    private GitHubDocumentReader gitHubDocumentReader;
+
+    /**
+     * 使用 GitHub 仓库文档进行 RAG 对话
+     */
+    public String doChatWithGitHubRag(String message, String chatId, String owner, String repo) {
+        log.info("doChatWithGitHubRag 调用 - chatId: {}, repo: {}/{}", chatId, owner, repo);
+        if (chatId == null || chatId.trim().isEmpty()) {
+            throw new IllegalArgumentException("chatId 不能为空");
+        }
+
+        // 加载 GitHub 仓库文档并临时加入向量库
+        List<org.springframework.ai.document.Document> githubDocs = gitHubDocumentReader.loadRepository(owner, repo);
+        if (!githubDocs.isEmpty()) {
+            pgvectorVectorStore.add(githubDocs);
+            log.info("GitHub 文档已加入向量库，共 {} 条", githubDocs.size());
+        }
+
+        String githubPrompt = loadSystemPrompt() +
+                "\n\n## GitHub 知识库使用规则\n" +
+                "1. 你将收到来自 GitHub 仓库的文档内容（README、Issues、仓库信息）\n" +
+                "2. 必须严格基于这些内容回答问题\n" +
+                "3. 如果涉及 Issue 编号，在回答中引用\n" +
+                "4. 不确定的内容不要编造";
+
+        String rewrittenMessage = queryReweiter.doQueryReweiter(message);
+
+        ChatResponse chatResponse = chatClient
+                .prompt()
+                .system(githubPrompt)
+                .user(rewrittenMessage)
+                .advisors(spec -> spec
+                        .param("chat_memory_conversation_id", chatId)
+                        .advisors(
+                                RetrievalAugmentationAdvisor.builder()
+                                        .documentRetriever(new VectorStoreDocumentRetriever(
+                                                pgvectorVectorStore, 0.3, 6, () -> null))
+                                        .build()
+                        )
+                )
+                .call()
+                .chatResponse();
+        String content = chatResponse.getResult().getOutput().getText();
+        log.info("github rag content:{}", content);
+        return content;
+    }
+
+    /**
+     * 增强版 RAG 对话（支持元信息过滤）
+     */
+    public String doChatWithEnhancedRag(RagRequest request) {
+        log.info("doChatWithEnhancedRag 调用 - chatId: {}, status: {}, sourceType: {}, category: {}",
+                request.getChatId(), request.getStatus(), request.getSourceType(), request.getCategory());
+        if (request.getChatId() == null || request.getChatId().trim().isEmpty()) {
+            throw new IllegalArgumentException("chatId 不能为空");
+        }
+
+        String rewrittenMessage = queryReweiter.doQueryReweiter(request.getMessage());
+
+        // 根据参数动态构建过滤条件
+        Advisor ragAdvisor = LoveAppRagCustomAdvisorFactory.createEnhancedRagAdvisor(
+                pgvectorVectorStore,
+                request.getStatus(),
+                request.getSourceType(),
+                request.getCategory(),
+                0.3,
+                6
+        );
+
+        ChatResponse chatResponse = chatClient
+                .prompt()
+                .system(buildRagSystemPrompt())
+                .user(rewrittenMessage)
+                .advisors(spec -> spec
+                        .param("chat_memory_conversation_id", request.getChatId())
+                        .advisors(ragAdvisor)
+                )
+                .call()
+                .chatResponse();
+        String content = chatResponse.getResult().getOutput().getText();
+        log.info("enhanced rag content:{}", content);
+        return content;
     }
 }
 

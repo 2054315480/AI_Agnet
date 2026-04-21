@@ -14,6 +14,7 @@ import com.itextpdf.layout.element.*;
 import com.itextpdf.layout.properties.TextAlignment;
 import com.itextpdf.layout.properties.UnitValue;
 import com.qh.ai_agent.chatmemory.FileConstant;
+import com.qh.ai_agent.service.OssService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -39,10 +40,29 @@ import java.io.File;
 @Component
 public class PDFGenerationTool {
 
-    /**
-     * PDF 保存目录
-     */
+    private final OssService ossService;
+
+    public PDFGenerationTool(OssService ossService) {
+        this.ossService = ossService;
+    }
+
     private final String PDF_DIR = FileConstant.FILE_SAVE_DIR + "/PDF";
+
+    private String buildResult(File file) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("PDF创建成功！\n");
+        if (ossService.isEnabled()) {
+            try {
+                String ossUrl = ossService.uploadFile("pdf/" + file.getName(), file);
+                sb.append("下载链接: ").append(ossUrl).append("\n");
+            } catch (Exception e) {
+                log.warn("OSS 上传失败，返回本地路径: {}", e.getMessage());
+            }
+        }
+        sb.append("本地路径: ").append(file.getAbsolutePath()).append("\n");
+        sb.append("文件大小: ").append(formatFileSize(file.length()));
+        return sb.toString();
+    }
 
     /**
      * 创建简单的 PDF 文档
@@ -98,9 +118,7 @@ public class PDFGenerationTool {
             document.close();
 
             log.info("PDF文档创建成功: {}", filePath);
-            return "PDF文档创建成功！\n" +
-                    "文件路径: " + file.getAbsolutePath() + "\n" +
-                    "文件大小: " + formatFileSize(file.length());
+            return buildResult(file);
 
         } catch (Exception e) {
             log.error("创建PDF文档失败", e);
@@ -179,9 +197,7 @@ public class PDFGenerationTool {
             document.close();
 
             log.info("带表格的PDF文档创建成功: {}", filePath);
-            return "带表格的PDF文档创建成功！\n" +
-                    "文件路径: " + file.getAbsolutePath() + "\n" +
-                    "文件大小: " + formatFileSize(file.length());
+            return buildResult(file);
 
         } catch (Exception e) {
             log.error("创建带表格的PDF文档失败", e);
@@ -249,9 +265,7 @@ public class PDFGenerationTool {
             document.close();
 
             log.info("带列表的PDF文档创建成功: {}", filePath);
-            return "带列表的PDF文档创建成功！\n" +
-                    "文件路径: " + file.getAbsolutePath() + "\n" +
-                    "文件大小: " + formatFileSize(file.length());
+            return buildResult(file);
 
         } catch (Exception e) {
             log.error("创建带列表的PDF文档失败", e);
@@ -327,9 +341,7 @@ public class PDFGenerationTool {
             document.close();
 
             log.info("多章节PDF文档创建成功: {}", filePath);
-            return "多章节PDF文档创建成功！\n" +
-                    "文件路径: " + file.getAbsolutePath() + "\n" +
-                    "文件大小: " + formatFileSize(file.length());
+            return buildResult(file);
 
         } catch (Exception e) {
             log.error("创建多章节PDF文档失败", e);
@@ -404,9 +416,7 @@ public class PDFGenerationTool {
             document.close();
 
             log.info("带图片的PDF文档创建成功: {}", filePath);
-            return "带图片的PDF文档创建成功！\n" +
-                    "文件路径: " + file.getAbsolutePath() + "\n" +
-                    "文件大小: " + formatFileSize(file.length());
+            return buildResult(file);
 
         } catch (Exception e) {
             log.error("创建带图片的PDF文档失败", e);
@@ -505,9 +515,7 @@ public class PDFGenerationTool {
             document.close();
 
             log.info("报告PDF创建成功: {}", filePath);
-            return "报告PDF创建成功！\n" +
-                    "文件路径: " + file.getAbsolutePath() + "\n" +
-                    "文件大小: " + formatFileSize(file.length());
+            return buildResult(file);
 
         } catch (Exception e) {
             log.error("创建报告PDF失败", e);
