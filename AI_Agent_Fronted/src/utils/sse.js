@@ -12,15 +12,15 @@
  * @param {function(Error)} onError - 出错
  * @returns {AbortController} 用于取消请求
  */
-export function fetchSSE(url, { onMessage, onComplete, onError }) {
+export function fetchSSE(url, { onMessage, onComplete, onError, headers: extraHeaders }) {
   const controller = new AbortController()
+
+  const headers = { 'Accept': 'text/event-stream', ...extraHeaders }
 
   fetch(url, {
     method: 'GET',
     signal: controller.signal,
-    headers: {
-      'Accept': 'text/event-stream'
-    }
+    headers
   })
     .then(response => {
       if (!response.ok) {
@@ -113,16 +113,16 @@ function parseSSELines(text) {
  * @param {Object} callbacks - 回调函数集合
  * @returns {AbortController} 用于取消请求
  */
-export function fetchMultipartSSE(url, formData, { onMessage, onComplete, onError }) {
+export function fetchMultipartSSE(url, formData, { onMessage, onComplete, onError, headers: extraHeaders }) {
   const controller = new AbortController()
+
+  const headers = { 'Accept': 'text/event-stream', ...extraHeaders }
 
   fetch(url, {
     method: 'POST',
     body: formData,
     signal: controller.signal,
-    headers: {
-      'Accept': 'text/event-stream'
-    }
+    headers
   })
     .then(response => {
       if (!response.ok) {

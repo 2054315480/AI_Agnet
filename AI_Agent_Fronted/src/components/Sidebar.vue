@@ -94,6 +94,10 @@
     <!-- Bottom -->
     <div class="sidebar-bottom">
       <ThemeToggle v-if="open" />
+      <div v-if="open && currentUser" class="user-info">
+        <span class="user-name">{{ currentUser.username }}</span>
+        <button class="logout-btn" @click="handleLogout">退出</button>
+      </div>
       <div v-if="open" class="sidebar-footer-text">秋鹤出品 &middot; AI Agent v1.0</div>
     </div>
   </aside>
@@ -102,6 +106,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useConversations } from '../composables/useConversations.js'
+import { useAuth } from '../api/auth.js'
 import ThemeToggle from './ThemeToggle.vue'
 
 defineProps({
@@ -120,6 +125,8 @@ const {
   deleteConversation
 } = useConversations()
 
+const { user: currentUser, logout } = useAuth()
+
 const groupedConversations = computed(() => getGroupedConversations(activeAgent.value))
 
 function switchAgent(agent) {
@@ -136,6 +143,13 @@ function handleNewChat() {
 
 function deleteConv(id) {
   deleteConversation(id)
+}
+
+function handleLogout() {
+  const { conversations } = useConversations()
+  conversations.value = []
+  logout()
+  window.location.href = '/login'
 }
 </script>
 
@@ -385,5 +399,32 @@ function deleteConv(id) {
     transform: translateX(0);
     box-shadow: var(--shadow-sidebar);
   }
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.logout-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  padding: 2px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.logout-btn:hover {
+  color: #ff6b6b;
+  border-color: #ff6b6b;
 }
 </style>

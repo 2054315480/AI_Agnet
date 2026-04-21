@@ -1,6 +1,7 @@
 package com.qh.ai_agent.rag;
 
 
+import com.qh.ai_agent.rag.enricher.DocumentMetadataEnricher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.markdown.MarkdownDocumentReader;
@@ -21,11 +22,12 @@ import java.util.List;
 public class LoveAppDocumentLoder {
 
     private final ResourcePatternResolver resourcePatternResolver;
+    private final DocumentMetadataEnricher metadataEnricher;
 
-    public LoveAppDocumentLoder(ResourcePatternResolver resourcePatternResolver) {
-
+    public LoveAppDocumentLoder(ResourcePatternResolver resourcePatternResolver,
+                                DocumentMetadataEnricher metadataEnricher) {
         this.resourcePatternResolver = resourcePatternResolver;
-
+        this.metadataEnricher = metadataEnricher;
     }
     /*
     加载Markdown
@@ -66,6 +68,8 @@ public class LoveAppDocumentLoder {
         } catch (IOException e) {
             log.error("Markdown 加载失败", e);
         }
+        // 元信息丰富
+        metadataEnricher.enrichDocuments(alldocuments);
         return alldocuments;
     }
 }

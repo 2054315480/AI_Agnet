@@ -71,6 +71,20 @@ knife4j:
 
 # AI Agent 配置
 ai:
+  # RAG 增强功能配置（默认关闭，按需开启）
+  rag:
+    github:
+      enabled: false
+      token: ${GITHUB_TOKEN:}
+      default-owner: ""
+      default-repo: ""
+    hybrid:
+      enabled: false
+      strategy: MERGE
+      keyword:
+        enabled: false
+    transformer:
+      use-dictionary: false
   # 违禁词列表，使用逗号、分号或空格分隔
   banned-words: 垃圾,暴力,色情,黄色
   # 敏感信息脱敏配置
@@ -92,3 +106,8 @@ chat:
     redis:
       key-prefix: "chat:memory:"
       ttl-hours: 24
+
+# JWT 配置
+jwt:
+  secret: ${JWT_SECRET:default-secret-must-be-at-least-32-characters-long-for-security}
+  expiration: 86400000

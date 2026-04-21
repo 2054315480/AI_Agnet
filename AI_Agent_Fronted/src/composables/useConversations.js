@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue'
+import { useAuth } from '../api/auth.js'
 
 const STORAGE_KEY = 'ai-agent-conversations'
 
@@ -32,10 +33,86 @@ function toDateStr(ts) {
 }
 
 export function useConversations() {
+  const { isAuthenticated, getHeaders } = useAuth()
+  const API_BASE = '/api'
+
+  // ---- Backend API helpers ----
+
+  async function apiFetch(path, options = {}) {
+    const headers = { ...getHeaders(), ...(options.headers || {}) }
+    const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(text || `API error ${res.status}`)
+    }
+    return res.json()
+  }
+
+  async function loadFromServer() {
+    try {
+      const serverConvs = await apiFetch('/conversations')
+      // Each server conversation needs its messages loaded
+      const results = []
+      for (const sc of serverConvs) {
+        try {
+          const detail = await apiFetch(`/conversations/${sc.id}`)
+          const msgs = (detail.messages || []).map(m => ({
+            id: `${m.id}`,
+            content: m.content || '',
+            isUser: m.role === 'user',
+            loading: false,
+            stepLabel: '',
+            thinkingSteps: [],
+            imageUrl: m.imageUrl || null,
+            time: m.createdAt ? formatTime(new Date(m.createdAt).getTime()) : '',
+            timestamp: m.createdAt ? new Date(m.createdAt).getTime() : Date.now()
+          }))
+          results.push({
+            id: sc.id,
+            agent: sc.agentType || 'love',
+            title: sc.title || '',
+            messages: msgs,
+            createdAt: sc.createdAt ? new Date(sc.createdAt).getTime() : Date.now(),
+            updatedAt: sc.updatedAt ? new Date(sc.updatedAt).getTime() : Date.now(),
+            _serverId: true
+          })
+        } catch {
+          // Skip conversations that fail to load
+          results.push({
+            id: sc.id,
+            agent: sc.agentType || 'love',
+            title: sc.title || '',
+            messages: [],
+            createdAt: sc.createdAt ? new Date(sc.createdAt).getTime() : Date.now(),
+            updatedAt: sc.updatedAt ? new Date(sc.updatedAt).getTime() : Date.now(),
+            _serverId: true
+          })
+        }
+      }
+      return results
+    } catch (e) {
+      console.warn('Failed to load conversations from server:', e)
+      return null
+    }
+  }
 
   // ---- Persistence ----
 
-  function loadConversations() {
+  async function loadConversations() {
+    if (isAuthenticated.value) {
+      const serverData = await loadFromServer()
+      if (serverData) {
+        conversations.value = serverData
+        if (conversations.value.length > 0) {
+          const sorted = [...conversations.value].sort((a, b) => b.updatedAt - a.updatedAt)
+          activeConversationId.value = sorted[0].id
+          activeAgent.value = sorted[0].agent
+        }
+        return
+      }
+    }
+
+    // Fallback to localStorage
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
@@ -49,9 +126,7 @@ export function useConversations() {
       conversations.value = []
     }
 
-    // Set initial active conversation
     if (conversations.value.length > 0) {
-      // Find the most recent conversation
       const sorted = [...conversations.value].sort((a, b) => b.updatedAt - a.updatedAt)
       activeConversationId.value = sorted[0].id
       activeAgent.value = sorted[0].agent
@@ -61,6 +136,7 @@ export function useConversations() {
   function saveConversations() {
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
+      // Always save to localStorage as fallback
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations.value))
       } catch (e) {
@@ -84,6 +160,20 @@ export function useConversations() {
     activeConversationId.value = conv.id
     activeAgent.value = conv.agent
     saveConversations()
+
+    // Persist to server
+    if (isAuthenticated.value) {
+      apiFetch('/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: conv.id,
+          title: conv.title,
+          agentType: conv.agent
+        })
+      }).catch(e => console.warn('Failed to create conversation on server:', e))
+    }
+
     return conv
   }
 
@@ -92,6 +182,12 @@ export function useConversations() {
     if (idx === -1) return
     conversations.value.splice(idx, 1)
     saveConversations()
+
+    // Delete from server
+    if (isAuthenticated.value) {
+      apiFetch(`/conversations/${id}`, { method: 'DELETE' })
+        .catch(e => console.warn('Failed to delete conversation on server:', e))
+    }
 
     // If deleted the active conversation, switch to the next one or create new
     if (activeConversationId.value === id) {
@@ -153,9 +249,30 @@ export function useConversations() {
     // Set title from first user message
     if (!conv.title && msg.isUser && msg.content) {
       conv.title = msg.content.length > 30 ? msg.content.substring(0, 30) + '...' : msg.content
+      // Update title on server
+      if (isAuthenticated.value) {
+        apiFetch(`/conversations/${convId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: conv.title })
+        }).catch(() => {})
+      }
     }
 
     saveConversations()
+
+    // Persist message to server (skip loading placeholders)
+    if (isAuthenticated.value && !msg.loading && msg.content) {
+      apiFetch(`/conversations/${convId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: msg.isUser ? 'user' : 'assistant',
+          content: msg.content
+        })
+      }).catch(e => console.warn('Failed to persist message:', e))
+    }
+
     return msg
   }
 
@@ -168,6 +285,18 @@ export function useConversations() {
 
     conv.updatedAt = Date.now()
     saveConversations()
+
+    // Persist the completed AI message to server
+    if (isAuthenticated.value && updates.loading === false && !lastMsg.isUser && lastMsg.content) {
+      apiFetch(`/conversations/${convId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: 'assistant',
+          content: lastMsg.content
+        })
+      }).catch(() => {})
+    }
   }
 
   function getLastMessage(convId) {

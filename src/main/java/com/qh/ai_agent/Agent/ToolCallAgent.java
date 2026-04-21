@@ -145,7 +145,8 @@ public  class ToolCallAgent extends ReActAgent{
 
             // 输出提示消息
             String result = assistantMessage.getText();
-            log.info(getName() + "的思考: {}", result);
+            log.info("[ToolThink] agent={} | step={} | thinking={}", getName(), getCurrentStep(),
+                    result != null ? result.substring(0, Math.min(result.length(), 200)) : "null");
 
             if (toolCallList == null || toolCallList.isEmpty()) {
                 // 没有工具调用，任务完成 —— 发送最终答案
@@ -153,7 +154,7 @@ public  class ToolCallAgent extends ReActAgent{
                 sendSseEvent("answer", result != null ? result : "（无文本输出）");
                 return false;
             } else {
-                log.info(getName() + "选择了" + toolCallList.size() + "个工具来使用");
+                log.info("[ToolThink] agent={} | step={} | selectedTools={}", getName(), getCurrentStep(), toolCallList.size());
                 String toolCallInfo = toolCallList.stream()
                         .map(toolcall -> String.format("工具名称：%s, 参数: %s ", toolcall.name(), toolcall.arguments()))
                         .collect(Collectors.joining("\n"));
@@ -178,14 +179,32 @@ public  class ToolCallAgent extends ReActAgent{
             return "没有需要调用的工具";
         }
 
-        // 调用工具
+        // 记录工具调用详情
+        AssistantMessage assistantMessage = toolCallchatResponse.getResult().getOutput();
+        List<AssistantMessage.ToolCall> toolCalls = assistantMessage.getToolCalls();
+        for (AssistantMessage.ToolCall tc : toolCalls) {
+            log.info("[ToolExec] agent={} | tool={} | params={}", getName(), tc.name(), tc.arguments());
+        }
+
+        // 执行工具并计时
+        long startTime = System.currentTimeMillis();
         Prompt prompt = new Prompt(getMessagesList(), this.chatOptions);
         ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, toolCallchatResponse);
+        long elapsed = System.currentTimeMillis() - startTime;
 
         // 记录消息上下文（conversationHistory 包含助手消息和工具响应）
         setMessagesList(toolExecutionResult.conversationHistory());
 
         ToolResponseMessage toolResponseMessage = (ToolResponseMessage) CollUtil.getLast(toolExecutionResult.conversationHistory());
+
+        // 记录每个工具的执行结果
+        for (ToolResponseMessage.ToolResponse response : toolResponseMessage.getResponses()) {
+            String resultStr = response.responseData().toString();
+            int previewLen = Math.min(resultStr.length(), 300);
+            log.info("[ToolExec] agent={} | tool={} | status=OK | time={}ms | result={}",
+                    getName(), response.name(), elapsed, resultStr.substring(0, previewLen));
+        }
+
         boolean terminateToolCalled = toolResponseMessage.getResponses().stream()
                 .anyMatch(response -> response.name().equals("doTerminate"));
 
@@ -196,7 +215,7 @@ public  class ToolCallAgent extends ReActAgent{
         String results = toolResponseMessage.getResponses().stream()
                 .map(response -> "工具" + response.name() + " 返回结果" + response.responseData())
                 .collect(Collectors.joining("\n"));
-        log.info(results);
+        log.info("[ToolExec] agent={} | step={} | totalTools={} | totalTime={}ms", getName(), getCurrentStep(), toolCalls.size(), elapsed);
         sendSseEvent("tool_result", results);
         return results;
     }
