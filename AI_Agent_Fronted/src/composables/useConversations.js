@@ -6,7 +6,7 @@ const STORAGE_KEY = 'ai-agent-conversations'
 // Module-level singletons
 const conversations = ref([])
 const activeConversationId = ref(null)
-const activeAgent = ref('love')
+const activeAgent = ref('customer_service')
 let saveTimer = null
 
 /**

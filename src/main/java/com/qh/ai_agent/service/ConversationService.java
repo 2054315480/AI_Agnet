@@ -65,14 +65,26 @@ public class ConversationService {
     }
 
     public void addMessage(String conversationId, String role, String content) {
+        addMessage(conversationId, role, content, null, null, null, false, false, null);
+    }
+
+    /** 保存消息（含客服分析字段） */
+    public void addMessage(String conversationId, String role, String content,
+                           String intent, String slots, Double confidence,
+                           boolean isHandoff, boolean isClarification, String sources) {
         ConversationMessage msg = new ConversationMessage();
         msg.setConversationId(conversationId);
         msg.setRole(role);
         msg.setContent(content);
+        msg.setIntent(intent);
+        msg.setSlots(slots);
+        msg.setConfidence(confidence);
+        msg.setIsHandoff(isHandoff);
+        msg.setIsClarification(isClarification);
+        msg.setSources(sources);
         msg.setCreatedAt(LocalDateTime.now());
         messageMapper.insert(msg);
 
-        // 更新对话的 updated_at
         Conversation conv = conversationMapper.selectById(conversationId);
         if (conv != null) {
             conv.setUpdatedAt(LocalDateTime.now());

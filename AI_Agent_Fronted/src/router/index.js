@@ -14,6 +14,12 @@ const routes = [
     meta: { title: 'AI Agent', requiresAuth: true }
   },
   {
+    path: '/admin/faq',
+    name: 'AdminFAQ',
+    component: () => import('../components/AdminFAQView.vue'),
+    meta: { title: 'FAQ 管理 - AI Agent', requiresAuth: true, requiresAdmin: true }
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/'
   }

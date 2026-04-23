@@ -18,13 +18,32 @@
       <template v-else>
         <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
           <rect width="40" height="40" rx="10" fill="var(--accent-manus-bg)"/>
-          <path d="M12 16l4 4-4 4" stroke="var(--accent-manus)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-          <line x1="19" y1="24" x2="28" y2="24" stroke="var(--accent-manus)" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" transform="translate(8, 2) scale(0.8)" stroke="var(--accent-manus)" stroke-width="2" fill="none"/>
+          <circle cx="13" cy="27" r="1.5" fill="var(--accent-manus)"/>
+          <circle cx="20" cy="27" r="1.5" fill="var(--accent-manus)"/>
+          <circle cx="27" cy="27" r="1.5" fill="var(--accent-manus)"/>
         </svg>
       </template>
     </div>
     <!-- Bubble -->
     <div class="bubble-wrap">
+      <!-- Intent tag -->
+      <div v-if="intentInfo && !isUser" class="intent-tag" :class="intentTagClass">
+        {{ intentInfo.displayName || intentInfo.intent }}
+        <span class="intent-confidence">{{ Math.round((intentInfo.confidence || 0) * 100) }}%</span>
+      </div>
+
+      <!-- Handoff alert -->
+      <div v-if="isHandoff && !isUser" class="handoff-alert">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <line x1="19" y1="8" x2="19" y2="14"/>
+          <line x1="22" y1="11" x2="16" y2="11"/>
+        </svg>
+        <span>转接人工客服中...</span>
+      </div>
+
       <!-- Thinking process block (DeepSeek style) -->
       <div v-if="hasThinkingSteps" class="thinking-block" :class="{ expanded: isThinkingExpanded }">
         <button class="thinking-header" @click="toggleThinking">
@@ -89,6 +108,16 @@
         </div>
       </div>
       <div v-if="time" class="msg-time">{{ time }}</div>
+      <!-- Suggested questions -->
+      <div v-if="!isUser && suggestedQuestions && suggestedQuestions.length > 0 && !loading" class="suggested-questions">
+        <div class="suggested-label">您可能还想问：</div>
+        <button
+          v-for="(q, idx) in suggestedQuestions"
+          :key="idx"
+          class="suggested-item"
+          @click="$emit('ask-question', q)"
+        >{{ q }}</button>
+      </div>
     </div>
 
     <!-- Full-screen image preview overlay -->
@@ -112,13 +141,19 @@ marked.setOptions({
 const props = defineProps({
   content: { type: String, default: '' },
   isUser: { type: Boolean, default: false },
-  agent: { type: String, default: 'love' },
+  agent: { type: String, default: 'customer_service' },
   loading: { type: Boolean, default: false },
   stepLabel: { type: String, default: '' },
   thinkingSteps: { type: Array, default: () => [] },
   imageUrl: { type: String, default: '' },
-  time: { type: String, default: '' }
+  time: { type: String, default: '' },
+  intentInfo: { type: Object, default: null },
+  isClarification: { type: Boolean, default: false },
+  isHandoff: { type: Boolean, default: false },
+  suggestedQuestions: { type: Array, default: () => [] }
 })
+
+defineEmits(['ask-question'])
 
 const thinkingOpen = ref(false)
 const thinkingBodyRef = ref(null)
@@ -129,6 +164,12 @@ function previewFullImage() {
 }
 
 const hasThinkingSteps = computed(() => props.thinkingSteps && props.thinkingSteps.length > 0)
+
+const intentTagClass = computed(() => {
+  if (!props.intentInfo) return ''
+  return props.intentInfo.intent === 'REQUEST_HUMAN' || props.intentInfo.intent === 'OUT_OF_SCOPE'
+    ? 'intent-handoff' : ''
+})
 
 // Auto-expand during loading, allow manual toggle when done
 const isThinkingExpanded = computed(() => {
@@ -293,6 +334,59 @@ const renderedContent = computed(() => {
 @keyframes blink-cursor {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
+}
+
+/* ===== Intent tag ===== */
+.intent-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+  background: rgba(31, 111, 235, 0.1);
+  color: var(--accent-primary);
+  border: 1px solid rgba(31, 111, 235, 0.2);
+}
+
+.intent-tag.intent-handoff {
+  background: rgba(248, 81, 73, 0.1);
+  color: var(--danger);
+  border-color: rgba(248, 81, 73, 0.2);
+}
+
+.intent-confidence {
+  font-size: 0.65rem;
+  opacity: 0.7;
+}
+
+/* ===== Handoff alert ===== */
+.handoff-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid rgba(248, 81, 73, 0.2);
+  color: var(--danger);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  margin-bottom: 6px;
+  animation: pulseAlert 2s ease infinite;
+}
+
+@keyframes pulseAlert {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* ===== Clarification ===== */
+.bubble.is-clarification {
+  border-color: rgba(255, 193, 7, 0.3);
+  background: rgba(255, 193, 7, 0.05);
 }
 
 /* ===== Thinking process block (DeepSeek style) ===== */
@@ -653,5 +747,38 @@ const renderedContent = computed(() => {
   .bubble-wrap {
     max-width: 85%;
   }
+}
+
+/* ===== Suggested questions ===== */
+.suggested-questions {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.suggested-label {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  margin-bottom: 2px;
+}
+
+.suggested-item {
+  text-align: left;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-sidebar);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: var(--transition);
+  line-height: 1.5;
+}
+
+.suggested-item:hover {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  background: rgba(31, 111, 235, 0.05);
 }
 </style>

@@ -1,0 +1,26 @@
+# 构建产物
+target/
+AI_Agent_Fronted/node_modules/
+AI_Agent_Fronted/dist/
+image-search-mcp-server/target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 本地运行时文件
+chat-memory/
+tmp/
+META-INF/
+nul
+
+# Git
+.git/
+
+# 不需要的文档
+*.md
+!src/main/resources/docs/*.md
+
+# 本地配置（生产环境用环境变量）
+.env

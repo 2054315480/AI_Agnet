@@ -23,6 +23,9 @@ public class User {
     @TableField("avatar")
     private String avatar;
 
+    @TableField(value = "role")
+    private String role = "user";
+
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

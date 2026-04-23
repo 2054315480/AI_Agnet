@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { useConversations } from './useConversations.js'
-import { chatLoveStream, chatLoveStreamWithImage, chatManusStream, chatManusStreamWithImage } from '../api/chat.js'
+import { chatCustomerServiceStream } from '../api/chat.js'
 
 export function useChat() {
   const {
@@ -14,126 +14,74 @@ export function useChat() {
   const isLoading = ref(false)
   let abortController = null
 
+  // 当前客服会话 ID（由后端返回）
+  let currentSessionId = null
+
   function sendMessage(text, imageFile, imageUrl) {
     if ((!text.trim() && !imageFile) || isLoading.value) return
 
     let conv = activeConversation.value
-    // Create conversation if none exists
     if (!conv) {
       conv = createConversation(activeAgent.value)
     }
 
     const convId = conv.id
 
-    // Add user message with optional image
     addMessage(convId, {
       content: text || '(图片)',
       isUser: true,
       imageUrl: imageUrl || null
     })
 
-    // Add AI placeholder
-    addMessage(convId, { content: '', isUser: false, loading: true, thinkingSteps: [] })
+    addMessage(convId, { content: '', isUser: false, loading: true, thinkingSteps: [], intentInfo: null })
 
     isLoading.value = true
-
-    if (activeAgent.value === 'love') {
-      sendLoveMessage(text, convId, imageFile)
-    } else {
-      sendManusMessage(text, convId, imageFile)
-    }
+    sendCustomerServiceMessage(text, convId)
   }
 
-  function sendLoveMessage(text, convId, imageFile) {
-    if (imageFile) {
-      abortController = chatLoveStreamWithImage(text, convId, imageFile, {
-        onChunk(data) {
-          const lastMsg = getLastMsg(convId)
-          if (lastMsg && !lastMsg.isUser) {
-            updateLastMessage(convId, {
-              content: lastMsg.content + data,
-              loading: true
-            })
-          }
-        },
-        onComplete() {
-          const lastMsg = getLastMsg(convId)
-          if (lastMsg && !lastMsg.isUser) {
-            updateLastMessage(convId, { loading: false, time: currentTime() })
-          }
-          isLoading.value = false
-          abortController = null
-        },
-        onError(err) {
-          const lastMsg = getLastMsg(convId)
-          if (lastMsg && !lastMsg.isUser) {
-            updateLastMessage(convId, {
-              content: `抱歉，发生了错误：${err.message}`,
-              loading: false,
-              time: currentTime()
-            })
-          }
-          isLoading.value = false
-          abortController = null
-        }
-      })
-    } else {
-      abortController = chatLoveStream(text, convId, {
-        onChunk(data) {
-          const lastMsg = getLastMsg(convId)
-          if (lastMsg && !lastMsg.isUser) {
-            updateLastMessage(convId, {
-              content: lastMsg.content + data,
-              loading: true
-            })
-          }
-        },
-        onComplete() {
-          const lastMsg = getLastMsg(convId)
-          if (lastMsg && !lastMsg.isUser) {
-            updateLastMessage(convId, { loading: false, time: currentTime() })
-          }
-          isLoading.value = false
-          abortController = null
-        },
-        onError(err) {
-          const lastMsg = getLastMsg(convId)
-          if (lastMsg && !lastMsg.isUser) {
-            updateLastMessage(convId, {
-              content: `抱歉，发生了错误：${err.message}`,
-              loading: false,
-              time: currentTime()
-            })
-          }
-          isLoading.value = false
-          abortController = null
-        }
-      })
-    }
-  }
-
-  function sendManusMessage(text, convId, imageFile) {
-    const streamFn = imageFile
-      ? (msg, cb) => chatManusStreamWithImage(msg, imageFile, cb)
-      : (msg, cb) => chatManusStream(msg, cb)
-
-    abortController = streamFn(text, {
+  function sendCustomerServiceMessage(text, convId) {
+    abortController = chatCustomerServiceStream(text, currentSessionId, {
       onStep(rawData) {
         let event = null
         try {
           event = JSON.parse(rawData)
         } catch (e) {
-          event = { type: 'thinking', content: rawData }
+          event = { type: 'answer', content: rawData }
         }
 
         const lastMsg = getLastMsg(convId)
         if (!lastMsg || lastMsg.isUser) return
 
-        if (event.type === 'tool_call' || event.type === 'tool_result' || event.type === 'thinking') {
+        if (event.type === 'session_id') {
+          // 保存后端返回的会话 ID
+          currentSessionId = event.content
+        } else if (event.type === 'intent') {
+          // 意图识别结果
+          try {
+            const intentData = JSON.parse(event.content)
+            updateLastMessage(convId, { intentInfo: intentData, loading: true })
+          } catch (e) {
+            // ignore parse error
+          }
+        } else if (event.type === 'clarification') {
+          // 澄清问题
+          updateLastMessage(convId, { content: event.content, loading: true, isClarification: true })
+        } else if (event.type === 'handoff') {
+          // 转人工提示
+          updateLastMessage(convId, { content: event.content, loading: true, isHandoff: true })
+        } else if (event.type === 'tool_call' || event.type === 'tool_result') {
+          // 工具调用步骤
           const steps = [...(lastMsg.thinkingSteps || []), { type: event.type, content: event.content }]
           updateLastMessage(convId, { thinkingSteps: steps, loading: true })
         } else if (event.type === 'answer') {
           updateLastMessage(convId, { content: event.content, loading: true })
+        } else if (event.type === 'suggested_questions') {
+          try {
+            const questions = JSON.parse(event.content)
+            updateLastMessage(convId, { suggestedQuestions: questions, loading: true })
+          } catch (e) {
+            // ignore parse error
+          }
         } else if (event.type === 'done') {
           updateLastMessage(convId, { loading: false, time: currentTime() })
         }
@@ -150,7 +98,7 @@ export function useChat() {
         const lastMsg = getLastMsg(convId)
         if (lastMsg && !lastMsg.isUser) {
           updateLastMessage(convId, {
-            content: `执行出错：${err.message}`,
+            content: `抱歉，发生了错误：${err.message}`,
             loading: false,
             time: currentTime()
           })
@@ -169,7 +117,6 @@ export function useChat() {
     isLoading.value = false
   }
 
-  // Helper: get last message without importing again
   function getLastMsg(convId) {
     const { activeConversation } = useConversations()
     const conv = convId === activeConversation.value?.id

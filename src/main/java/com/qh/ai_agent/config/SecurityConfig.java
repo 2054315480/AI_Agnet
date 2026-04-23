@@ -34,8 +34,12 @@ public class SecurityConfig {
                         .requestMatchers("/auth/**").permitAll()
                         .requestMatchers("/ai/**").permitAll()
                         .requestMatchers("/image-chat/**").permitAll()
+                        .requestMatchers("/customer-service/**").permitAll()
+                        .requestMatchers("/admin/**").permitAll()
+                        .requestMatchers("/analytics/**").permitAll()
+                        .requestMatchers("/conversations/**").permitAll()
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                        .anyRequest().authenticated()
+                        .anyRequest().permitAll()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
