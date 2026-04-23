@@ -2,15 +2,10 @@
   <div class="welcome-screen">
     <div class="welcome-content">
       <!-- Agent icon -->
-      <div class="welcome-icon" :class="`icon-${agent}`">
-        <!-- Heart for love -->
-        <svg v-if="agent === 'love'" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-        </svg>
-        <!-- Terminal for manus -->
-        <svg v-else width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="4 17 10 11 4 5"/>
-          <line x1="12" y1="19" x2="20" y2="19"/>
+      <div class="welcome-icon icon-cs">
+        <!-- Customer service icon -->
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         </svg>
       </div>
 
@@ -21,8 +16,7 @@
         <button
           v-for="q in agentData.questions"
           :key="q"
-          class="quick-btn"
-          :class="`btn-${agent}`"
+          class="quick-btn btn-cs"
           @click="$emit('quick-send', q)"
         >
           {{ q }}
@@ -36,30 +30,20 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  agent: { type: String, default: 'love' }
+  agent: { type: String, default: 'customer_service' }
 })
 
 defineEmits(['quick-send'])
 
 const agentData = computed(() => {
-  if (props.agent === 'love') {
-    return {
-      greeting: '你好，我是 AI 恋爱大师',
-      description: '专业的情感咨询师，为你解答恋爱中的困惑，提供贴心建议。',
-      questions: [
-        '如何提高恋爱中的沟通技巧？',
-        '怎样判断对方是否喜欢我？',
-        '异地恋怎么维持感情？'
-      ]
-    }
-  }
   return {
-    greeting: '你好，我是 HeManus 超级智能体',
-    description: '拥有工具调用能力的全能 AI 助手，帮你搜索、分析、生成报告。',
+    greeting: '你好，我是智能客服',
+    description: '为您提供订单查询、产品咨询、售后服务等专业客服支持。有问必答，服务至上。',
     questions: [
-      '帮我搜索一下今天的科技新闻',
-      '帮我下载一个网页的内容并总结',
-      '帮我生成一份 PDF 报告'
+      '查询一下我的订单状态',
+      '这款产品的保修政策是什么？',
+      '我想申请退款',
+      '帮我推荐一款合适的产品'
     ]
   }
 })
@@ -99,6 +83,12 @@ const agentData = computed(() => {
   background: var(--accent-manus-bg);
   color: var(--accent-manus);
   border: 1px solid var(--accent-manus-border);
+}
+
+.welcome-icon.icon-cs {
+  background: rgba(31, 111, 235, 0.1);
+  color: var(--accent-primary);
+  border: 1px solid rgba(31, 111, 235, 0.2);
 }
 
 .welcome-title {
@@ -149,6 +139,11 @@ const agentData = computed(() => {
 .quick-btn.btn-manus:hover {
   border-color: var(--accent-manus-border);
   background: var(--accent-manus-bg);
+}
+
+.quick-btn.btn-cs:hover {
+  border-color: rgba(31, 111, 235, 0.3);
+  background: rgba(31, 111, 235, 0.08);
 }
 
 @media (max-width: 768px) {

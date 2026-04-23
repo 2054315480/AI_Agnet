@@ -38,25 +38,13 @@
       <div class="sidebar-section">
         <div class="agent-tabs">
           <button
-            class="agent-tab"
-            :class="{ active: activeAgent === 'love' }"
-            @click="switchAgent('love')"
+            class="agent-tab active"
+            style="flex: 1;"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
             </svg>
-            <span>恋爱大师</span>
-          </button>
-          <button
-            class="agent-tab"
-            :class="{ active: activeAgent === 'manus' }"
-            @click="switchAgent('manus')"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="4 17 10 11 4 5"/>
-              <line x1="12" y1="19" x2="20" y2="19"/>
-            </svg>
-            <span>超级智能体</span>
+            <span>智能客服</span>
           </button>
         </div>
       </div>
@@ -94,17 +82,27 @@
     <!-- Bottom -->
     <div class="sidebar-bottom">
       <ThemeToggle v-if="open" />
+      <button v-if="open" class="admin-faq-btn" @click="goToAdminFaq">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+        <span>FAQ 管理</span>
+      </button>
       <div v-if="open && currentUser" class="user-info">
         <span class="user-name">{{ currentUser.username }}</span>
         <button class="logout-btn" @click="handleLogout">退出</button>
       </div>
-      <div v-if="open" class="sidebar-footer-text">秋鹤出品 &middot; AI Agent v1.0</div>
+      <div v-if="open" class="sidebar-footer-text">智能客服 Agent v2.0</div>
     </div>
   </aside>
 </template>
 
 <script setup>
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useConversations } from '../composables/useConversations.js'
 import { useAuth } from '../api/auth.js'
 import ThemeToggle from './ThemeToggle.vue'
@@ -127,10 +125,16 @@ const {
 
 const { user: currentUser, logout } = useAuth()
 
+const router = useRouter()
+
 const groupedConversations = computed(() => getGroupedConversations(activeAgent.value))
 
 function switchAgent(agent) {
   setActiveAgent(agent)
+}
+
+function goToAdminFaq() {
+  router.push('/admin/faq')
 }
 
 function openConversation(id) {
@@ -374,6 +378,28 @@ function handleLogout() {
   color: var(--text-tertiary);
   text-align: center;
   margin-top: 8px;
+}
+
+.admin-faq-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  transition: var(--transition);
+  margin-bottom: 4px;
+}
+
+.admin-faq-btn:hover {
+  color: var(--accent-primary);
+  background: var(--bg-hover);
+}
+
+.admin-faq-btn svg {
+  flex-shrink: 0;
 }
 
 /* ===== Responsive: Mobile ===== */

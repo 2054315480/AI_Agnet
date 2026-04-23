@@ -30,6 +30,11 @@
           :image-url="msg.imageUrl"
           :time="msg.time"
           :agent="activeAgent"
+          :intent-info="msg.intentInfo || null"
+          :is-clarification="msg.isClarification || false"
+          :is-handoff="msg.isHandoff || false"
+          :suggested-questions="msg.suggestedQuestions || []"
+          @ask-question="handleSend"
         />
       </div>
     </div>

@@ -26,7 +26,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-@RestController()
+// @RestController // 已禁用：LoveApp 和 MCP ToolCallbackProvider 不可用，客服模式不使用此控制器
 @RequestMapping("/ai")
 public class AiController {
 

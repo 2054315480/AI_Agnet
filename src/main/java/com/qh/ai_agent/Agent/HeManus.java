@@ -20,7 +20,7 @@ import java.util.Map;
  *  秋鹤的超级智能体，可以有着自主规划的能力，可以直接使用
  */
 @Slf4j
-@Component
+//@Component  // 已替换为 CustomerServiceAgent，不再自动注入
 public class HeManus extends ToolCallAgent{
 
     private final SensitiveInfoService sensitiveInfoService;

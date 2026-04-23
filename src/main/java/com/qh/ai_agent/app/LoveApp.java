@@ -46,7 +46,7 @@ import java.util.Set;
 
 
 
-@Component
+// @Component // 已禁用：MCP 未启用时 ToolCallbackProvider bean 不存在，客服 Agent 不依赖此类
 @Slf4j
 public class LoveApp {
     private final ChatClient chatClient;
