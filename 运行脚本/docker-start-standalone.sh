@@ -21,7 +21,7 @@ echo "============================================"
 # ============================================
 # 1. 安装系统依赖
 # ============================================
-echo "[1/8] 安装系统依赖..."
+echo "[1/9] 安装系统依赖..."
 
 # 恢复 apt 源（如果之前被改坏了）
 if ! grep -q "archive.ubuntu.com" /etc/apt/sources.list 2>/dev/null; then
@@ -45,7 +45,7 @@ echo "[OK] 依赖安装完成"
 # ============================================
 # 2. 配置 PostgreSQL + pgvector
 # ============================================
-echo "[2/8] 配置 PostgreSQL..."
+echo "[2/9] 配置 PostgreSQL..."
 systemctl start postgresql
 systemctl enable postgresql 2>/dev/null || true
 
@@ -72,12 +72,44 @@ if [ -n "$PG_HBA" ]; then
     systemctl reload postgresql 2>/dev/null || true
 fi
 
+# 设置 postgres 用户密码
+su - postgres -c "psql -c \"ALTER USER postgres PASSWORD '$POSTGRES_PASSWORD';\"" 2>/dev/null || true
+
 echo "[OK] PostgreSQL 配置完成"
+
+# ============================================
+# 3. 初始化数据库表和数据
+# ============================================
+echo "[3/8] 初始化数据库..."
+
+# 运行建表脚本
+if [ -f database/schema.sql ]; then
+    su - postgres -c "psql -d $POSTGRES_DB -f /home/puaiuc/AI_Agent/database/schema.sql" 2>&1 || echo "[!] 部分表可能已存在，跳过"
+    echo "[OK] 数据库表创建完成"
+else
+    echo "[!] 未找到 database/schema.sql，跳过建表"
+fi
+
+# 导入种子数据（用户、历史会话等）
+if [ -f database/seed-data.sql ]; then
+    su - postgres -c "psql -d $POSTGRES_DB -f /home/puaiuc/AI_Agent/database/seed-data.sql" 2>&1 || true
+    echo "[OK] 种子数据导入完成"
+fi
+
+# 导入初始用户数据（管理员 + 测试用户）
+if [ -f database/init-data.sql ]; then
+    su - postgres -c "psql -d $POSTGRES_DB -f /home/puaiuc/AI_Agent/database/init-data.sql" 2>&1 || true
+    echo "[OK] 初始用户导入完成"
+else
+    echo "[!] 未找到 database/init-data.sql，跳过用户初始化"
+fi
+
+echo "[OK] 数据库初始化完成"
 
 # ============================================
 # 3. 配置 Redis
 # ============================================
-echo "[3/8] 配置 Redis..."
+echo "[4/9] 配置 Redis..."
 systemctl start redis-server
 systemctl enable redis-server 2>/dev/null || true
 echo "[OK] Redis 已启动"
@@ -85,14 +117,14 @@ echo "[OK] Redis 已启动"
 # ============================================
 # 4. 构建后端
 # ============================================
-echo "[4/8] 构建后端 (Maven, 首次需下载依赖)..."
+echo "[5/9] 构建后端 (Maven, 首次需下载依赖)..."
 mvn clean package -Dmaven.test.skip=true -q
 echo "[OK] 后端构建完成"
 
 # ============================================
 # 5. 启动后端
 # ============================================
-echo "[5/8] 启动后端..."
+echo "[6/9] 启动后端..."
 pkill -f "ai_agent.*\.jar" 2>/dev/null || true
 sleep 1
 
@@ -104,7 +136,17 @@ if [ -z "$JAR_FILE" ]; then
     exit 1
 fi
 
-nohup java -jar "$JAR_FILE" \
+nohup env \
+    POSTGRES_HOST=localhost \
+    POSTGRES_PORT=$POSTGRES_PORT \
+    POSTGRES_DB=$POSTGRES_DB \
+    POSTGRES_USER=$POSTGRES_USER \
+    POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
+    AI_API_KEY=$AI_API_KEY \
+    AI_BASE_URL=$AI_BASE_URL \
+    REDIS_HOST=localhost \
+    JWT_SECRET=$JWT_SECRET \
+    java -jar "$JAR_FILE" \
     --spring.profiles.active=local,docker \
     --server.port=8123 \
     > /home/puaiuc/AI_Agent/logs/backend.log 2>&1 &
@@ -115,7 +157,7 @@ echo "[OK] 后端已启动 (PID: $BACKEND_PID)"
 # ============================================
 # 6. 构建前端
 # ============================================
-echo "[6/8] 构建前端..."
+echo "[7/9] 构建前端..."
 cd AI_Agent_Fronted
 npm install --silent 2>/dev/null || npm install
 npm run build
@@ -125,7 +167,7 @@ echo "[OK] 前端构建完成"
 # ============================================
 # 7. 配置 Nginx
 # ============================================
-echo "[7/8] 配置 Nginx..."
+echo "[8/9] 配置 Nginx..."
 cat > /etc/nginx/sites-available/ai-agent << 'NGINX'
 server {
     listen 80;
