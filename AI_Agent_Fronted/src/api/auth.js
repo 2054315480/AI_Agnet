@@ -36,11 +36,15 @@ async function login(username, password) {
     body: JSON.stringify({ username, password })
   })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.error || '登录失败')
+  if (!res.ok) {
+    console.error(`[Auth] 登录失败: ${res.status}`, data)
+    throw new Error(data.error || '登录失败')
+  }
   token.value = data.token
   user.value = data.user
   isAuthenticated.value = true
   localStorage.setItem('token', data.token)
+  console.log('[Auth] 登录成功:', username)
   return data
 }
 
@@ -59,9 +63,11 @@ async function fetchUser() {
       user.value = await res.json()
       isAuthenticated.value = true
     } else {
+      console.warn(`[Auth] /auth/me 返回 ${res.status}，清除旧 token`)
       logout()
     }
-  } catch {
+  } catch (e) {
+    console.warn('[Auth] fetchUser 异常:', e.message)
     logout()
   }
 }

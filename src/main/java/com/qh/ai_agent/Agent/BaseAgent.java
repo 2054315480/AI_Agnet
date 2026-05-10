@@ -15,6 +15,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 抽象基础代理类，用于管理代理状态和执行流程
@@ -49,6 +50,18 @@ public abstract class BaseAgent {
 
     // SSE 推送器，在 runStream 中设置
     protected SseEmitter currentSseEmitter;
+
+    /** Agent 执行完成后的回调（在 async finally 块中执行，确保必定触发） */
+    private Runnable onCompleteHook;
+    /** 防止 hook 被多次调用（finally + onCompletion 可能同时触发） */
+    private final AtomicBoolean hookExecuted = new AtomicBoolean(false);
+
+    /**
+     * 设置 Agent 执行完成后的回调（在 async finally 块中执行，确保必定触发）
+     */
+    public void setOnCompleteHook(Runnable hook) {
+        this.onCompleteHook = hook;
+    }
 
     /**
      * 向当前 SSE 连接推送消息（仅在 runStream 模式下有效）
@@ -249,6 +262,7 @@ public abstract class BaseAgent {
             }finally {
                 this.currentSseEmitter = null;
                 this.cleanup(); // 清理资源
+                executeOnCompleteHook();
             }
             // 执行循环
         });
@@ -258,6 +272,7 @@ public abstract class BaseAgent {
             this.state = AgentState.ERROR;
             this.currentSseEmitter = null;
             this.cleanup();
+            executeOnCompleteHook();
             log.info("SSE EMITTER TIMEOUT");
         });
         // 设置完成回调
@@ -267,6 +282,7 @@ public abstract class BaseAgent {
             }
             this.currentSseEmitter = null;
             this.cleanup();
+            executeOnCompleteHook();
             log.info("SSE EMITTER COMPLETION");
         });
         return sseEmitter;
@@ -333,6 +349,7 @@ public abstract class BaseAgent {
             } finally {
                 this.currentSseEmitter = null;
                 this.cleanup();
+                executeOnCompleteHook();
             }
         });
 
@@ -340,6 +357,7 @@ public abstract class BaseAgent {
             this.state = AgentState.ERROR;
             this.currentSseEmitter = null;
             this.cleanup();
+            executeOnCompleteHook();
             log.info("SSE EMITTER TIMEOUT");
         });
         sseEmitter.onCompletion(() -> {
@@ -348,6 +366,7 @@ public abstract class BaseAgent {
             }
             this.currentSseEmitter = null;
             this.cleanup();
+            executeOnCompleteHook();
             log.info("SSE EMITTER COMPLETION");
         });
         return sseEmitter;
@@ -359,6 +378,17 @@ public abstract class BaseAgent {
      * 定义单个步骤
      */
     public  abstract String step();
+
+    /** 执行 onCompleteHook（一次性 + 安全包装，异常不影响主流程） */
+    private void executeOnCompleteHook() {
+        if (onCompleteHook != null && hookExecuted.compareAndSet(false, true)) {
+            try {
+                onCompleteHook.run();
+            } catch (Exception e) {
+                log.error("onCompleteHook 执行失败", e);
+            }
+        }
+    }
 
     protected void cleanup(){
         // 可以重写子类实现，清理资源

@@ -1,8 +1,8 @@
 package com.qh.ai_agent.agent.customer_service;
 
 import com.qh.ai_agent.knowledge.KnowledgeSearchService;
+import com.qh.ai_agent.knowledge.KnowledgeSearchService.HybridSearchResult;
 import com.qh.ai_agent.knowledge.KnowledgeSearchService.KnowledgeSearchResult;
-import com.qh.ai_agent.knowledge.KnowledgeSearchService.SearchResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
@@ -14,9 +14,9 @@ import java.util.stream.Collectors;
 
 /**
  * 客服专用工具集
- * [MOCK] queryOrder/queryProduct/cancelOrder/submitRefund 使用硬编码模拟数据
- *       searchKnowledgeBase 已接入 KnowledgeSearchService（底层仍为模拟数据）
- *       transferToHuman 不涉及数据
+ * queryOrder/queryProduct/cancelOrder/submitRefund — 演示模式，不返回编造数据，引导使用知识库
+ * searchKnowledgeBase — 知识库检索（FAQ 直匹配 + RAG 语义检索）
+ * transferToHuman — 转接人工客服
  */
 @Slf4j
 @Component
@@ -25,53 +25,38 @@ public class CustomerServiceTools {
 
     private final KnowledgeSearchService knowledgeSearchService;
 
-    @Tool(description = "根据订单号查询订单状态和物流信息。当用户询问订单状态、物流、配送进度时使用。")
+    @Tool(description = "查询订单状态和物流信息。当用户询问订单状态、物流、配送进度时使用。注意：当前为演示模式，无真实订单数据，请结合 searchKnowledgeBase 查找订单相关的 FAQ 指引。")
     public String queryOrder(@ToolParam(description = "订单编号") String orderId) {
-        log.info("[CS-Tool] queryOrder: {}", orderId);
-        // [MOCK] 模拟订单数据
+        log.info("[CS-Tool] queryOrder: {} (无真实数据，返回查询指引)", orderId);
         return """
         {
+          "status": "no_data",
           "order_id": "%s",
-          "status": "已发货",
-          "logistics": "顺丰快递 SF1234567890",
-          "current_location": "北京分拨中心",
-          "estimated_delivery": "预计明天下午送达",
-          "order_time": "2026-04-20 10:30:00",
-          "items": ["智能手表Pro x1", "蓝牙耳机 x1"],
-          "total_amount": "¥1,299.00"
+          "message": "当前系统为演示模式，未查询到该订单的真实数据。请使用 searchKnowledgeBase 工具搜索「订单查询」「物流查询」等相关 FAQ，向用户提供查询指引（如通过APP查询、拨打客服热线等）。",
+          "suggestion": "请告知用户当前无法直接查询订单，并引导用户通过以下方式自助查询：1）登录中国移动APP查看 2）拨打10086查询 3）发送CXDD至10086短信查询"
         }
         """.formatted(orderId);
     }
 
-    @Tool(description = "根据产品名称查询产品详细信息。当用户询问产品参数、功能、价格、规格时使用。")
+    @Tool(description = "查询产品详细信息。当用户询问产品参数、价格、功能时使用。请优先使用 searchKnowledgeBase 搜索知识库中的产品信息。")
     public String queryProduct(@ToolParam(description = "产品名称或型号") String productName) {
-        log.info("[CS-Tool] queryProduct: {}", productName);
-        // [MOCK] 模拟产品数据
+        log.info("[CS-Tool] queryProduct: {} (无真实数据，建议搜索知识库)", productName);
         return """
         {
+          "status": "no_data",
           "product_name": "%s",
-          "price": "¥799.00",
-          "specs": {
-            "屏幕": "1.4英寸AMOLED",
-            "电池": "300mAh，续航7天",
-            "防水": "IP68",
-            "传感器": "心率、血氧、加速度"
-          },
-          "warranty": "一年质保",
-          "in_stock": true,
-          "rating": 4.8,
-          "reviews_count": 12580
+          "message": "当前系统无真实产品数据库。请使用 searchKnowledgeBase 工具搜索该产品的相关信息。如果知识库中有相关内容，基于知识库回答；如果没有，如实告知用户暂时无法查询该产品详情，并建议联系10086人工客服。"
         }
         """.formatted(productName);
     }
 
-    @Tool(description = "在知识库中搜索匹配的问题和答案。当用户提问涉及FAQ、政策说明、退换货规则、配送规则等常见问题时使用。")
-    public String searchKnowledgeBase(@ToolParam(description = "搜索关键词或问题描述") String query) {
+    @Tool(description = "在知识库中搜索匹配的问题和答案。当用户提问涉及FAQ、政策说明、退换货规则、配送规则等常见问题时使用。请传入用户的完整原始提问（不要简化为关键词），搜索范围包含银行/电信/电商三个行业的完整知识库。")
+    public String searchKnowledgeBase(@ToolParam(description = "用户的完整原始提问（不要简化为关键词）") String query) {
         log.info("[CS-Tool] searchKnowledgeBase: {}", query);
-        SearchResult searchResult = knowledgeSearchService.search(query, 3);
+        HybridSearchResult searchResult = knowledgeSearchService.hybridSearch(query, 3);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("{\"matchType\":\"").append(searchResult.isFaqDirectMatch() ? "faq_direct" : "rag_search").append("\"");
+        sb.append("{\"matchType\":\"").append(searchResult.isFaqDirectMatch() ? "faq_direct" : "hybrid_search").append("\"");
 
         // 推荐问题
         sb.append(",\"suggestedQuestions\":[");
@@ -96,6 +81,9 @@ public class CustomerServiceTools {
                 if (r.source() != null && !r.source().isEmpty()) {
                     sb.append(",\"source\":\"").append(r.source()).append("\"");
                 }
+                if (r.kbId() != null && !r.kbId().isEmpty()) {
+                    sb.append(",\"kbId\":\"").append(r.kbId()).append("\"");
+                }
                 sb.append(",\"docType\":\"").append(r.docType()).append("\"");
                 sb.append(",\"category\":\"").append(r.category()).append("\"");
                 sb.append(",\"relevance\":").append(String.format("%.2f", r.relevance()));
@@ -108,33 +96,28 @@ public class CustomerServiceTools {
         return sb.toString();
     }
 
-    @Tool(description = "取消指定订单。当用户明确要求取消订单时使用。")
+    @Tool(description = "取消订单。当用户要求取消订单时使用。注意：当前为演示模式，请结合 searchKnowledgeBase 查找取消订单的流程指引。")
     public String cancelOrder(@ToolParam(description = "要取消的订单编号") String orderId,
                               @ToolParam(description = "取消原因") String reason) {
-        log.info("[CS-Tool] cancelOrder: {}, reason: {}", orderId, reason);
-        // [MOCK] 模拟取消结果
+        log.info("[CS-Tool] cancelOrder: {}, reason: {} (无真实数据，返回指引)", orderId, reason);
         return """
         {
+          "status": "no_data",
           "order_id": "%s",
-          "cancel_status": "成功",
-          "message": "订单已取消，退款将在3-5个工作日内原路返回。",
-          "refund_amount": "¥1,299.00"
+          "message": "当前系统为演示模式，无法执行真实的取消操作。请使用 searchKnowledgeBase 搜索「取消订单」相关 FAQ，向用户说明取消流程。如果知识库中有取消订单的指引，按照指引回答；如果没有，建议用户拨打10086或登录APP操作。"
         }
         """.formatted(orderId);
     }
 
-    @Tool(description = "提交退款申请。当用户要求退款时使用。")
+    @Tool(description = "提交退款申请。当用户要求退款时使用。注意：当前为演示模式，请结合 searchKnowledgeBase 查找退款流程指引。")
     public String submitRefund(@ToolParam(description = "订单编号") String orderId,
                                @ToolParam(description = "退款原因") String reason) {
-        log.info("[CS-Tool] submitRefund: {}, reason: {}", orderId, reason);
-        // [MOCK] 模拟退款结果
+        log.info("[CS-Tool] submitRefund: {}, reason: {} (无真实数据，返回指引)", orderId, reason);
         return """
         {
+          "status": "no_data",
           "order_id": "%s",
-          "refund_status": "已提交",
-          "ticket_id": "RF-20260422-001",
-          "message": "退款申请已提交，预计1-2个工作日审核。审核通过后退款将在3-5个工作日内原路返回。",
-          "refund_amount": "¥1,299.00"
+          "message": "当前系统为演示模式，无法执行真实的退款操作。请使用 searchKnowledgeBase 搜索「退款」「退换货」相关 FAQ，向用户说明退款流程和注意事项。如果知识库中有退款指引，按照指引回答；如果没有，建议用户拨打10086或登录APP申请退款。"
         }
         """.formatted(orderId);
     }

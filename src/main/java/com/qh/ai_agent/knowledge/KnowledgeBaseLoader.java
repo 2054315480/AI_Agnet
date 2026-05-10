@@ -2,6 +2,7 @@ package com.qh.ai_agent.knowledge;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.ResourcePatternResolver;
 import org.springframework.stereotype.Component;
@@ -10,6 +11,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
 import java.util.*;
 
 /**
@@ -30,6 +32,9 @@ public class KnowledgeBaseLoader {
 
     private final ResourcePatternResolver resolver;
 
+    @Value("${cs.faq.data-dir:#{null}}")
+    private String externalFaqDir;
+
     public KnowledgeBaseLoader(ResourcePatternResolver resolver) {
         this.resolver = resolver;
     }
@@ -42,6 +47,13 @@ public class KnowledgeBaseLoader {
         docs.addAll(loadFromDirectory("classpath:knowledge/faq/*.md", "FAQ"));
         docs.addAll(loadFromDirectory("classpath:knowledge/product/*.md", "PRODUCT"));
         docs.addAll(loadFromDirectory("classpath:knowledge/policy/*.md", "POLICY"));
+
+        // 路径2: classpath:docs/ — RAG 业务知识库
+        docs.addAll(loadFromDirectory("classpath:docs/*.md", "RAG_KB"));
+
+        // 路径3: 外部 FAQ 目录 — 管理员上传的 FAQ
+        docs.addAll(loadExternalFaq());
+
         log.info("[KnowledgeBaseLoader] 加载完成，共 {} 条文档", docs.size());
         return docs;
     }
@@ -56,22 +68,28 @@ public class KnowledgeBaseLoader {
             for (Resource resource : resources) {
                 String filename = resource.getFilename();
                 if (filename == null || !filename.endsWith(".md")) continue;
+                if (isNonKnowledgeFile(filename)) continue;
 
                 String categoryName = filename.replace(".md", "");
                 String content = readResource(resource);
 
                 if (content.isBlank()) continue;
 
-                if ("FAQ".equals(docType)) {
-                    docs.addAll(parseFaqDocument(content, categoryName, docs.size()));
-                } else {
-                    docs.add(parseSingleDocument(content, docType, categoryName, docs.size()));
+                switch (docType) {
+                    case "FAQ" -> docs.addAll(parseFaqDocument(content, categoryName, docs.size()));
+                    case "RAG_KB" -> docs.addAll(parseRagDocument(content, categoryName, docs.size()));
+                    default -> docs.add(parseSingleDocument(content, docType, categoryName, docs.size()));
                 }
             }
         } catch (IOException e) {
             log.warn("[KnowledgeBaseLoader] 加载目录失败: {} — {}", locationPattern, e.getMessage());
         }
         return docs;
+    }
+
+    private boolean isNonKnowledgeFile(String filename) {
+        return filename.contains("需求文档") || filename.contains("故障") ||
+               filename.contains("恋爱常见问题");
     }
 
     /**
@@ -172,5 +190,128 @@ public class KnowledgeBaseLoader {
             }
         }
         return sb.toString();
+    }
+
+    // ========== 外部 FAQ 目录加载 ==========
+
+    private List<Document> loadExternalFaq() {
+        List<Document> docs = new ArrayList<>();
+        Path faqDir = resolveExternalFaqDir();
+        if (faqDir == null || !Files.exists(faqDir) || !Files.isDirectory(faqDir)) {
+            log.info("[KnowledgeBaseLoader] 外部 FAQ 目录不存在或为空: {}", faqDir);
+            return docs;
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(faqDir, "*.md")) {
+            for (Path path : stream) {
+                String filename = path.getFileName().toString();
+                String categoryName = filename.replace(".md", "");
+                String content = Files.readString(path, StandardCharsets.UTF_8);
+                if (content.isBlank()) continue;
+                if (content.contains("### Q")) {
+                    docs.addAll(parseNewFaqDocument(content, categoryName, docs.size()));
+                } else {
+                    docs.addAll(parseFaqDocument(content, categoryName, docs.size()));
+                }
+                log.info("[KnowledgeBaseLoader] 加载外部 FAQ: {}, 分类: {}", filename, categoryName);
+            }
+        } catch (IOException e) {
+            log.warn("[KnowledgeBaseLoader] 加载外部 FAQ 目录失败: {}", e.getMessage());
+        }
+        return docs;
+    }
+
+    private Path resolveExternalFaqDir() {
+        if (externalFaqDir != null && !externalFaqDir.isBlank()) {
+            return Paths.get(externalFaqDir);
+        }
+        return Paths.get(System.getProperty("user.dir"), "data", "faq");
+    }
+
+    // ========== 新格式 FAQ 解析（### Q{n}：question 格式）==========
+
+    private List<Document> parseNewFaqDocument(String content, String categoryName, int startIndex) {
+        List<Document> docs = new ArrayList<>();
+        String[] lines = content.split("\n");
+        String currentSection = categoryName;
+        String currentQuestion = null;
+        StringBuilder currentAnswer = new StringBuilder();
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("# ") && !trimmed.startsWith("## ")) continue;
+            if (trimmed.startsWith("## ") && !trimmed.startsWith("### ")) {
+                currentSection = trimmed.substring(3).trim().replaceAll("\\*\\*", "").trim();
+                continue;
+            }
+            if (trimmed.startsWith("### Q") || trimmed.startsWith("### q")) {
+                if (currentQuestion != null && !currentAnswer.isEmpty()) {
+                    docs.add(buildNewFaqDocument(currentQuestion, currentAnswer.toString().trim(),
+                            categoryName, currentSection, startIndex + docs.size()));
+                }
+                currentQuestion = trimmed.substring(4).trim().replaceAll("^Q\\d+[：:]\\s*", "");
+                currentAnswer = new StringBuilder();
+            } else if (currentQuestion != null) {
+                currentAnswer.append(line).append("\n");
+            }
+        }
+        if (currentQuestion != null && !currentAnswer.isEmpty()) {
+            docs.add(buildNewFaqDocument(currentQuestion, currentAnswer.toString().trim(),
+                    categoryName, currentSection, startIndex + docs.size()));
+        }
+        return docs;
+    }
+
+    private Document buildNewFaqDocument(String question, String answer, String category,
+                                          String section, int chunkIndex) {
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("source", "FAQ-" + category);
+        metadata.put("doc_type", "FAQ");
+        metadata.put("category", category);
+        metadata.put("section", section);
+        metadata.put("chunk_index", chunkIndex);
+        metadata.put("question", question);
+        String docContent = "Q: " + question + "\nA: " + answer;
+        return new Document(docContent, metadata);
+    }
+
+    // ========== RAG 业务知识库文档解析 ==========
+
+    private List<Document> parseRagDocument(String content, String categoryName, int startIndex) {
+        List<Document> docs = new ArrayList<>();
+        String[] lines = content.split("\n");
+        String currentSectionTitle = null;
+        StringBuilder currentSectionContent = new StringBuilder();
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("# ") && !trimmed.startsWith("## ")) continue;
+            if (trimmed.startsWith("## ") && !trimmed.startsWith("### ")) {
+                if (currentSectionTitle != null && currentSectionContent.length() > 0) {
+                    docs.add(buildRagDocument(currentSectionTitle, currentSectionContent.toString().trim(),
+                            categoryName, startIndex + docs.size()));
+                }
+                currentSectionTitle = trimmed.substring(3).trim();
+                currentSectionContent = new StringBuilder();
+            } else if (currentSectionTitle != null) {
+                currentSectionContent.append(line).append("\n");
+            }
+        }
+        if (currentSectionTitle != null && currentSectionContent.length() > 0) {
+            docs.add(buildRagDocument(currentSectionTitle, currentSectionContent.toString().trim(),
+                    categoryName, startIndex + docs.size()));
+        }
+        return docs;
+    }
+
+    private Document buildRagDocument(String sectionTitle, String sectionContent,
+                                       String categoryName, int chunkIndex) {
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("source", "知识库-" + categoryName);
+        metadata.put("doc_type", "RAG_KB");
+        metadata.put("category", categoryName);
+        metadata.put("section", sectionTitle);
+        metadata.put("chunk_index", chunkIndex);
+        String docContent = sectionTitle + "\n\n" + sectionContent;
+        return new Document(docContent, metadata);
     }
 }

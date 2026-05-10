@@ -12,15 +12,15 @@ import org.springframework.stereotype.Component;
 /**
  * Spring AI 框架 AI 调用大模型
  */
-@Component
+// @Component // 已禁用：Demo 类，不应在应用启动时自动执行
 public class SpringAiInvoke implements CommandLineRunner {
     @Resource
-    private ChatModel dashscopeChatModel; //chatclinet
+    private ChatModel openAiChatModel; //chatclinet
 
 
     @Override
     public void run(String... args) throws Exception {
-        AssistantMessage assistantMessage = dashscopeChatModel.call(new Prompt("你好，我是秋鹤"))
+        AssistantMessage assistantMessage = openAiChatModel.call(new Prompt("你好，我是秋鹤"))
                 .getResult()
                 .getOutput();
         System.out.println(assistantMessage.getText());

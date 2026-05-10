@@ -1,560 +1,1291 @@
-# 智能客服问答与多轮对话 Agent — 需求文档
+# 智能客服Agent — 赛题改造需求文档
 
-> **版本:** v1.0 | **日期:** 2026-04-22 | **项目:** 基于 AI Agent 项目改造
-
----
-
-## 一、赛题概述
-
-将现有 AI Agent 平台改造为智能客服 Agent，具备意图识别、知识库检索、多轮对话、主动澄清、拒识转人工等能力，并提供 Web UI 及对话分析功能。
+> **版本:** v3.0 | **日期:** 2026-04-28 | **基于:** 赛题数据包 v1.0 + PROJECT_GUIDE.md v4.5
+>
+> 本文档是旧版需求文档的全面重写，结合赛题官方数据包（`data/`）和当前项目实际状态（`PROJECT_GUIDE.md`），
+> 全部采用 **Java** 技术栈实现，在现有 Spring Boot 项目基础上直接改造强化。
 
 ---
 
-## 二、评分标准与量化指标
+## 一、赛题核心要求速览
 
-### 总分 100 分，六维评分体系
+### 1.1 输入与输出
 
-| 维度 | 分值 | 评审方式 | 核心关注点 |
-|------|------|----------|------------|
-| 指标达成 | 30 分 | 自动化脚本评测 | 每题对应具体量化项 |
-| 代码工程质量 | 20 分 | 人工评审 | 代码结构、可读性、规范性、CI/CD |
-| 架构合理性 | 15 分 | 人工评审 | 组件划分、可扩展性、技术选型 |
-| 创新性 | 15 分 | 人工评审 | 方法创新、工程巧思、亮点 |
-| 可运行与可复现 | 10 分 | 实际验证 | 一键启动、环境无关、结果可复现 |
-| 文档与演示 | 10 分 | 人工评审 | 架构文档、Demo 视频、README |
+| 项目 | 说明 |
+|------|------|
+| **输入** | 知识库（1379 条 QA，7 个文档 MD/DOCX/PDF，3 个行业：银行/电信/电商）+ 用户对话 |
+| **输出** | `predictions.jsonl`（每行含 `id`/`answer`/`retrieved_kb_ids`/`is_refusal`/`confidence`）|
+| **评测集** | 公开 295 条（199 ST + 60 MT + 36 Trap）+ 隐藏 98 条（53 ST + 25 MT + 20 Trap）|
 
----
+### 1.2 五大核心能力要求
 
-## 三、功能需求拆解
+1. **意图识别与槽位提取** — 准确识别用户意图，提取关键信息（订单号、产品名、问题类型）
+2. **知识库检索问答** — 基于知识库回答，答案须有出处（`retrieved_kb_ids`）
+3. **多轮对话管理** — 上下文跟踪，正确处理指代消解、槽位继承、话题切换
+4. **主动澄清** — 信息不足时主动反问，而非猜测作答（对 `hallucination_bait` 陷阱尤其关键）
+5. **拒识与转人工** — 超范围问题明确告知并建议转人工，不编造答案
 
-### 3.1 意图识别与槽位提取（指标达成 30 分核心）
-
-#### 3.1.1 功能描述
-准确识别用户意图，提取关键信息（订单号、产品名、问题类型）。
-
-#### 3.1.2 量化指标（自动化脚本评测项）
-
-| 指标 | 目标值 | 评测方式 |
-|------|--------|----------|
-| 意图识别准确率 | ≥ 90% | 标注测试集对比，正确意图数 / 总测试用例数 |
-| 槽位提取 F1 值 | ≥ 85% | 精确匹配提取结果与标注槽位，计算 F1 |
-| 订单号识别率 | ≥ 95% | 正则 + 模型双通道，覆盖多种格式（纯数字、带前缀等） |
-| 产品名识别率 | ≥ 85% | 模糊匹配知识库产品列表 |
-| 平均响应时间 | ≤ 2s | 从请求到意图+槽位返回的时间 |
-
-#### 3.1.3 意图体系设计
+### 1.3 评分体系（决定改造优先级）
 
 ```
-核心意图枚举：
-├── ORDER_QUERY        — 订单查询（物流、状态）
-├── ORDER_CANCEL       — 取消订单
-├── ORDER_REFUND       — 退款申请
-├── PRODUCT_INFO       — 产品咨询（参数、功能、对比）
-├── PRODUCT_RECOMMEND  — 产品推荐
-├── COMPLAINT          — 投诉建议
-├── AFTER_SALE         — 售后服务（维修、换货）
-├── POLICY_QUERY       — 政策查询（退换货政策、保修等）
-├── CHITCHAT           — 闲聊（寒暄、感谢）
-├── REQUEST_HUMAN      — 转人工
-├── CLARIFICATION      — 用户澄清（回答系统追问）
-└── OUT_OF_SCOPE       — 超出范围
+总分(100) = 0.40 × ST + 0.35 × MT + 0.25 × Trap
+
+ST 单题评分 = 答案准确性(50分) + 可追溯性(20分) + 流畅简洁(15分) + 拒答正确(15分/gate)
+MT 单题评分 = 答案准确性(35分) + 上下文一致性(25分) + 可追溯性(15分) + 多轮自然度(15分) + 任务完成度(10分)
+Trap 评分   = 100 × (0.6 × Recall + 0.4 × Precision_跨任务)
 ```
 
-#### 3.1.4 槽位 Schema 定义
+**关键雷点：**
+- ⚠️ 误拒应答样本 → **整道题 0 分**（gate 规则），同时拉低 Trap Precision
+- ⚠️ `must_not_contain` 任一命中 → 关键词得分 = 0
+- ⚠️ 答案残留 `{{TEMPLATE_VAR}}` → 流畅性扣分
+- ⚠️ 长度超过参考答案 2 倍 → 每 100 字扣 0.04 分
 
-```json
-{
-  "ORDER_QUERY": {
-    "required": ["order_id"],
-    "optional": ["query_type"]
-  },
-  "ORDER_REFUND": {
-    "required": ["order_id", "refund_reason"],
-    "optional": ["refund_amount", "product_name"]
-  },
-  "PRODUCT_INFO": {
-    "required": ["product_name"],
-    "optional": ["info_type", "compare_with"]
-  },
-  "COMPLAINT": {
-    "required": ["issue_type"],
-    "optional": ["order_id", "product_name", "issue_detail"]
-  }
+### 1.4 提交材料
+
+| # | 项 | 形式 |
+|---|-----|------|
+| 1 | `predictions.jsonl` | JSONL 文件 |
+| 2 | 设计文档 | Markdown/PDF（4-8 页，按 `design_doc_template.md` 填写）|
+| 3 | 代码仓库（可选）| GitHub/GitLab URL |
+
+---
+
+## 二、现有项目能力盘点（基于 PROJECT_GUIDE.md v4.5）
+
+### 2.1 已完成的能力（✅ 直接可用）
+
+| 能力 | Java 实现 | 状态 |
+|------|----------|------|
+| **意图识别** | `IntentClassifier` — LLM 结构化输出 + 正则预筛 + 关键词预筛，12 种意图 | ✅ 成熟 |
+| **槽位提取** | `SlotDefinition` + `SlotExtractionResult`，支持必填/可选/枚举/正则 | ✅ 成熟 |
+| **对话状态机** | `DialogState` + `DialogPhase`（8 个阶段），`DialogStateManager`（ConcurrentHashMap）| ✅ 成熟 |
+| **槽位填充模式** | 检测 `SLOT_FILLING`/`CLARIFYING` 阶段 → `extractSlots()` 轻量级提取 | ✅ v4.5 新增 |
+| **指代消解** | `resolveReferences()` — 规则检测（指代词正则 + 短输入阈值）+ LLM 消解双通道 | ✅ 成熟 |
+| **两级知识检索** | Tier 1: FAQ 直接匹配（相似度 ≥ 0.6）→ Tier 2: PgVector 语义检索（topK=3）| ✅ v4.0 重构 |
+| **出处标注** | Prompt 强制 `[来源：文档名#段落]` 格式 | ✅ v5.0 完善 |
+| **主动澄清** | 低置信度（< 0.5）意图选择菜单 + 必填槽位缺失追问 | ✅ 成熟 |
+| **转人工** | 4 种触发条件：用户要求 / 连续超范围 / 轮次 > 15 / 阶段 HANDOFF | ✅ 成熟 |
+| **拒绝回答** | `OUT_OF_SCOPE` 意图 → 超范围回复（不转人工） | ✅ 基础实现 |
+| **Web UI** | Vue 3 + SSE 流式 + 意图标签 + 澄清卡片 + 转人工警告 + 推荐问题 | ✅ 成熟 |
+| **对话分析** | `AnalyticsView` — 统计卡片 + 意图分布 + 会话列表（分页/排序/筛选）+ CSV 导出 | ✅ v4.4 完成 |
+| **FAQ 管理** | `AdminFAQView` — 上传 MD / 列表 / 删除 / 知识库重载 | ✅ v4.0 完成 |
+| **知识库加载** | 三路加载（classpath knowledge + classpath docs + 外部 data/faq）| ✅ v5.0 完善 |
+| **PDF 解析** | PDFBox 2 — 已在 pom.xml 中 | ✅ 可复用 |
+| **Docker 部署** | docker-compose（PostgreSQL + 后端 + Nginx）| ✅ 已就绪 |
+| **PgVector** | 1024 维向量存储，HNSW 索引，COSINE_DISTANCE | ✅ 已运行 |
+| **Spring AI** | ChatClient + DashScope 集成 + 结构化输出 | ✅ 已集成 |
+
+### 2.2 现有项目与赛题的技术栈天然对齐
+
+所有核心技术 Java 侧都有成熟方案：
+
+| 需求 | 现有依赖 | 需新增的 Java 库 |
+|------|---------|-----------------|
+| PDF 解析 | PDFBox 2 ✅ | — |
+| DOCX 解析 | — | Apache POI |
+| MD 解析 | Jsoup 1.19.1 ✅ | Flexmark（或正则） |
+| 向量检索 | PgVector ✅ | — |
+| BM25 检索 | — | Apache Lucene |
+| LLM 调用 | DashScope / Spring AI ✅ | — |
+| Reranker | — | DashScope Re-rank API（HTTP 调用） |
+| HTTP API | Spring Boot ✅ | — |
+| Docker | Dockerfile ✅ | — |
+| JSONL 输出 | — | Jackson（已有，Spring Boot 内置） |
+
+---
+
+## 三、核心差距分析
+
+### 3.1 缺失的能力
+
+| 维度 | 现有 Java 系统 | 赛题要求 | 差距等级 |
+|------|---------------|----------|----------|
+| **DOCX 解析** | 无 | 2 个 DOCX 文件（银行/电信），含 `[条目编号]` 标记 | 🔴 需新建 |
+| **PDF 知识库解析** | PDFBox 仅用于图片识别场景 | 2 个 PDF 文件（电信/电商），需提取文本 + `[条目编号]` | 🟡 需扩展 |
+| **`[条目编号]` 提取** | 用 section 字段做来源标注 | 必须精确提取 `kb_qa_xxx` 格式编号，用于 F1@3 评分 | 🔴 需新建 |
+| **BM25 稀疏检索** | 仅关键词匹配（`KnowledgeSearchService`）| 专业 BM25 提升精确匹配，弥补向量检索的不足 | 🟡 需新增 |
+| **Lucene 混合检索** | PgVector 语义检索 + 简单关键词 | 稠密 + 稀疏 + Reranker 三阶段检索 | 🟡 需增强 |
+| **陷阱检测** | 无专项处理 | 4 种子类型（out_of_kb / prompt_injection / unauthorized_action / hallucination_bait）| 🔴 需新建 |
+| **`must_not_contain` 过滤** | 无 | 任一命中 → 关键词得分 = 0 | 🔴 需新建 |
+| **模板变量清洗** | 无 | `{{TEMPLATE_VAR}}` 残留 → 扣分 | 🔴 需新建 |
+| **predictions.jsonl 生成** | 无 | 特定格式的 JSONL 输出 | 🔴 需新建 |
+| **比赛 API 端点** | `/customer-service/chat` SSE 流式 | `/predict` + `/predict_batch` + `/health`（非 SSE）| 🔴 需新增 |
+| **批量评测 UI** | 无 | 上传 .jsonl → 展示结果 → 下载 | 🔴 需新建 |
+
+### 3.2 需要适配的现有能力
+
+| 维度 | 现有实现 | 需要的改动 |
+|------|---------|-----------|
+| **意图分类** | 12 种电商意图 | 扩展到 3 行业（银行/电信/电商），增加陷阱意图检测 |
+| **知识检索** | 两级检索（FAQ + PgVector）| 加入 BM25 变成真正的混合检索，Lucene 建索引 |
+| **KB 加载** | 仅加载 Markdown | 扩展为 MD + DOCX + PDF 三格式统一加载 |
+| **出处标注** | `[来源：文档名#段落]` | 改为 `kb_qa_xxx` 编号方式，适配 F1@3 |
+| **拒识逻辑** | 连续超范围 → 转人工 | 增强为 4 类陷阱分别处理，保守拒答策略 |
+
+---
+
+## 四、改造总体方案：纯 Java 统一架构
+
+### 4.1 架构图
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                    纯 Java 统一架构                               │
+│                                                                  │
+│  ┌──────────────────────────┐    ┌───────────────────────────┐   │
+│  │      现有能力（保留）       │    │      新增/改造模块          │   │
+│  │                          │    │                           │   │
+│  │  IntentClassifier        │    │  KnowledgeBaseParser      │   │
+│  │  DialogStateManager      │    │  ├─ MdKbParser            │   │
+│  │  CustomerServiceAgent    │    │  ├─ DocxKbParser (POI)    │   │
+│  │  PgVectorStore           │    │  └─ PdfKbParser (PDFBox)  │   │
+│  │  KnowledgeSearchService  │    │                           │   │
+│  │  ConversationService     │    │  HybridRetriever          │   │
+│  │  AnalyticsService        │    │  ├─ PgVectorRetriever     │   │
+│  │  FAQ 管理                │    │  ├─ Bm25Retriever(Lucene) │   │
+│  │  JWT 认证                │    │  └─ RerankerService       │   │
+│  │  Web UI (Vue 3)          │    │                           │   │
+│  │  Docker 部署             │    │  TrapDetector             │   │
+│  │                          │    │  AnswerPostProcessor      │   │
+│  │                          │    │  CompetitionController    │   │
+│  │                          │    │  EvaluationService        │   │
+│  └──────────────────────────┘    └───────────────────────────┘   │
+│                                                                  │
+│  ┌───────────────────────────────────────────────────────────┐   │
+│  │                    Docker 容器                              │   │
+│  │  PostgreSQL(pgvector) + Spring Boot(8123) + Nginx(80)      │   │
+│  │  对外暴露: /api/competition/predict, /predict_batch,       │   │
+│  │           /health, /download/...                           │   │
+│  └───────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 4.2 技术选型清单（全部 Java 生态）
+
+| 组件 | 选型 | 选型理由 |
+|------|------|----------|
+| Web 框架 | Spring Boot 3.5 | 已有，无需更换 |
+| **DOCX 解析** | Apache POI 5.x | Java 生态处理 Word 文档的工业标准 |
+| **MD 解析** | Flexmark 0.64 | 纯 Java Markdown 解析器，支持标题层级提取 |
+| **PDF 解析** | PDFBox 2.x | **已在 pom.xml 中！** 只需新增文本提取逻辑 |
+| **BM25 检索** | Apache Lucene 9.x | Java 全文检索引擎，内置 BM25 评分模型 |
+| **向量检索** | PgVector（Spring AI）| **已配置并运行！** 无需引入新组件 |
+| **Reranker** | DashScope Re-rank API | 通过 HTTP 调用阿里云重排服务 |
+| **LLM** | DashScope qwen-plus（Spring AI）| **已集成！** |
+| **结构化输出** | jsonschema-generator 4.38 | **已有依赖！** 用于意图分类 JSON 输出 |
+| **JSONL 处理** | Jackson（Spring Boot 内置）| **已有！** 逐行读写即可 |
+| **Docker** | 多阶段构建（已有 Dockerfile）| **已有！** 略作调整即可 |
+| **Lucene 分词** | jieba-analysis 或 IK Analyzer | 中文分词，配合 BM25 |
+
+### 4.3 新增 Maven 依赖
+
+```xml
+<!-- DOCX 解析 — 比赛知识库含 .docx 文件 -->
+<dependency>
+    <groupId>org.apache.poi</groupId>
+    <artifactId>poi-ooxml</artifactId>
+    <version>5.3.0</version>
+</dependency>
+
+<!-- Markdown 解析 — 知识库 MD 文件结构化提取 -->
+<dependency>
+    <groupId>com.vladsch.flexmark</groupId>
+    <artifactId>flexmark-all</artifactId>
+    <version>0.64.8</version>
+</dependency>
+
+<!-- Lucene 全文检索 — BM25 稀疏检索 -->
+<dependency>
+    <groupId>org.apache.lucene</groupId>
+    <artifactId>lucene-core</artifactId>
+    <version>9.11.1</version>
+</dependency>
+<dependency>
+    <groupId>org.apache.lucene</groupId>
+    <artifactId>lucene-analysis-common</artifactId>
+    <version>9.11.1</version>
+</dependency>
+
+<!-- 中文分词器（Lucene BM25 用，二选一） -->
+<dependency>
+    <groupId>com.huaban</groupId>
+    <artifactId>jieba-analysis</artifactId>
+    <version>1.0.2</version>
+</dependency>
+```
+
+---
+
+## 五、详细改造任务（全部 Java 实现）
+
+### 任务 1：多格式知识库解析器（优先级 P0，预计 3-4 天）
+
+#### 1.1 新建包结构
+
+```
+src/main/java/com/qh/ai_agent/knowledge/parser/
+├── KbEntry.java                  // 知识库条目统一模型（id/text/category/domain）
+├── KbParser.java                 // 解析器接口
+├── MdKbParser.java               // Markdown 解析实现
+├── DocxKbParser.java             // DOCX 解析实现（Apache POI）
+├── PdfKbParser.java              // PDF 解析实现（PDFBox）
+├── KbParserFactory.java          // 解析器工厂（根据文件扩展名分发）
+└── KbEntryIdExtractor.java       // [条目编号:kb_qa_xxx] 提取工具
+```
+
+#### 1.2 核心模型
+
+```java
+/**
+ * 知识库条目的统一数据模型。
+ * 无论原始文件是 MD/DOCX/PDF，解析后都归一化为该结构。
+ */
+@Data
+@Builder
+public class KbEntry {
+    /** 知识库唯一编号，如 kb_qa_8a3f1b2c00 */
+    private String kbId;
+
+    /** 条目的提问文本 */
+    private String question;
+
+    /** 条目的答案文本（含模板变量 {{...}}） */
+    private String answer;
+
+    /** 所属行业：banking / telecom / ecommerce */
+    private String domain;
+
+    /** 业务类目，如 CARD / BILLING / RETURNS */
+    private String category;
+
+    /** 来源文件名 */
+    private String sourceFile;
+
+    /** 在源文件中的段落序号 */
+    private int chunkIndex;
+
+    /**
+     * 获取用于向量化的文本（Q + A 拼接）。
+     */
+    public String toEmbeddingText() {
+        return question + " " + answer;
+    }
+
+    /**
+     * 获取用于 Lucene 索引的文本。
+     */
+    public String toIndexText() {
+        return question + " " + answer;
+    }
 }
 ```
 
-#### 3.1.5 实现方案
+#### 1.3 条目编号提取器（雷 7 对策：兼容 PDF 格式变形）
 
-- **技术路线：** LLM 结构化输出（Spring AI `BeanOutputConverter`）+ 正则预筛
-- **双通道策略：** 格式固定的字段（订单号、手机号）用正则先提取，语义字段用 LLM 提取
-- **Advisor 集成：** 新增 `IntentRecognitionAdvisor`（优先级 -90），在请求链中自动识别意图并注入上下文
+```java
+/**
+ * 从文本中提取 [条目编号:kb_qa_xxx] 标记。
+ *
+ * 兼容性：PDF 解析时反引号、星号、方括号可能变形，
+ * 所以直接用正则匹配 ID 模式，不依赖周围格式标记。
+ */
+public class KbEntryIdExtractor {
 
-#### 3.1.6 与现有项目的关系
+    /** 直接匹配 kb_qa_ 前缀 + 10位hex 的 ID 模式 */
+    private static final Pattern KB_ID_PATTERN =
+        Pattern.compile("kb_qa_[a-f0-9]{10}");
 
-| 项目 | 状态 | 说明 |
+    /** 兼容 Markdown 中的完整标注格式：
+     *  [条目编号:kb_qa_xxx] 或 *[条目编号:`kb_qa_xxx`]* */
+    private static final Pattern FULL_TAG_PATTERN =
+        Pattern.compile("\\[条目编号[:：]\\s*`?\\s*(kb_qa_[a-f0-9]{10})\\s*`?\\s*\\]");
+
+    /**
+     * 从文本中提取 kb_qa_xxx 编号。
+     * @return 提取到的编号，未找到返回 null
+     */
+    public static String extract(String text) {
+        // 先尝试完整标注格式
+        Matcher fullMatcher = FULL_TAG_PATTERN.matcher(text);
+        if (fullMatcher.find()) {
+            return fullMatcher.group(1);
+        }
+        // 回退：直接匹配 ID 模式（兼容 PDF 格式变形）
+        Matcher idMatcher = KB_ID_PATTERN.matcher(text);
+        if (idMatcher.find()) {
+            return idMatcher.group();
+        }
+        return null;
+    }
+}
+```
+
+#### 1.4 PDF 解析实现（基于已有的 PDFBox）
+
+```java
+/**
+ * PDF 知识库解析器。
+ * 利用项目中已有的 PDFBox 依赖，提取文本并识别 QA 条目。
+ */
+@Component
+public class PdfKbParser implements KbParser {
+
+    @Override
+    public List<KbEntry> parse(File pdfFile, String domain) {
+        List<KbEntry> entries = new ArrayList<>();
+        try (PDDocument document = Loader.loadPDF(pdfFile)) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            // 保留段落顺序
+            stripper.setSortByPosition(true);
+            String fullText = stripper.getText(document);
+
+            // 按 "### N." 或 "Q:" 等模式切分 QA 对
+            String[] sections = fullText.split("(?=(?:###\\s*\\d+\\.|Q[：:]))");
+            for (int i = 0; i < sections.length; i++) {
+                String section = sections[i].trim();
+                if (section.isEmpty()) continue;
+
+                String kbId = KbEntryIdExtractor.extract(section);
+                if (kbId == null) continue; // 跳过无编号的段落
+
+                KbEntry entry = KbEntry.builder()
+                    .kbId(kbId)
+                    .question(extractQuestion(section))
+                    .answer(extractAnswer(section))
+                    .domain(domain)
+                    .sourceFile(pdfFile.getName())
+                    .chunkIndex(i)
+                    .build();
+                entries.add(entry);
+            }
+        } catch (IOException e) {
+            log.error("PDF 解析失败: {}", pdfFile.getName(), e);
+        }
+        return entries;
+    }
+    // ... extractQuestion/extractAnswer 辅助方法
+}
+```
+
+#### 1.5 DOCX 解析实现（Apache POI）
+
+```java
+/**
+ * DOCX 知识库解析器。
+ * 使用 Apache POI 读取 .docx 文件，按标题样式和 [条目编号] 标记切分。
+ */
+@Component
+public class DocxKbParser implements KbParser {
+
+    @Override
+    public List<KbEntry> parse(File docxFile, String domain) {
+        List<KbEntry> entries = new ArrayList<>();
+        try (XWPFDocument doc = new XWPFDocument(new FileInputStream(docxFile))) {
+            StringBuilder currentChunk = new StringBuilder();
+            String currentKbId = null;
+            int chunkIndex = 0;
+
+            for (IBodyElement element : doc.getBodyElements()) {
+                if (element instanceof XWPFParagraph) {
+                    XWPFParagraph para = (XWPFParagraph) element;
+                    String text = para.getText().trim();
+                    if (text.isEmpty()) continue;
+
+                    // 检测新条目的起始（标题样式 或 新编号）
+                    String kbId = KbEntryIdExtractor.extract(text);
+                    if (kbId != null || isHeadingStyle(para)) {
+                        // 保存上一个条目
+                        if (currentKbId != null && currentChunk.length() > 0) {
+                            entries.add(buildEntry(currentKbId, currentChunk.toString(),
+                                docxFile.getName(), domain, chunkIndex++));
+                        }
+                        currentChunk = new StringBuilder();
+                        currentKbId = kbId;
+                    }
+                    currentChunk.append(text).append("\n");
+                }
+            }
+            // 保存最后一个条目
+            if (currentKbId != null && currentChunk.length() > 0) {
+                entries.add(buildEntry(currentKbId, currentChunk.toString(),
+                    docxFile.getName(), domain, chunkIndex));
+            }
+        } catch (IOException e) {
+            log.error("DOCX 解析失败: {}", docxFile.getName(), e);
+        }
+        return entries;
+    }
+
+    /** 判断段落是否为标题样式 */
+    private boolean isHeadingStyle(XWPFParagraph para) {
+        String styleId = para.getStyleID();
+        return styleId != null && styleId.matches("Heading\\d+");
+    }
+    // ... buildEntry 辅助方法
+}
+```
+
+#### 1.6 统一加载器
+
+```java
+/**
+ * 统一的 KB 加载器，根据文件扩展名分发给对应的解析器。
+ * 替代/扩展 KnowledgeBaseLoader 中的纯 MD 加载逻辑。
+ */
+@Service
+public class UnifiedKbLoader {
+
+    private final MdKbParser mdKbParser;
+    private final DocxKbParser docxKbParser;
+    private final PdfKbParser pdfKbParser;
+
+    /**
+     * 加载比赛知识库目录下的所有文档。
+     *
+     * @param kbRootDir 知识库根目录，如 data/data/knowledge_base/
+     * @return 所有解析出的 KbEntry 列表
+     */
+    public List<KbEntry> loadAll(String kbRootDir) {
+        List<KbEntry> allEntries = new ArrayList<>();
+        File root = new File(kbRootDir);
+
+        // 遍历三个行业子目录
+        for (File domainDir : root.listFiles(File::isDirectory)) {
+            String domain = mapDomainName(domainDir.getName()); // 银行→banking, 电信→telecom, 电商→ecommerce
+            for (File docFile : domainDir.listFiles(File::isFile)) {
+                KbParser parser = KbParserFactory.getParser(docFile.getName());
+                if (parser != null) {
+                    List<KbEntry> entries = parser.parse(docFile, domain);
+                    allEntries.addAll(entries);
+                    log.info("加载完成: {} → {} 条", docFile.getName(), entries.size());
+                }
+            }
+        }
+        log.info("知识库加载完毕: 总计 {} 条", allEntries.size());
+        return allEntries;
+    }
+
+    /** 中文行业名 → 英文 domain */
+    private String mapDomainName(String chineseName) {
+        return switch (chineseName) {
+            case "银行" -> "banking";
+            case "电信" -> "telecom";
+            case "电商" -> "ecommerce";
+            default -> chineseName;
+        };
+    }
+}
+```
+
+---
+
+### 任务 2：混合检索引擎升级（优先级 P0，预计 3-4 天）
+
+#### 2.1 从"两级检索"升级为"三阶段混合检索"
+
+```
+现有（两阶段）：FAQ 直接匹配 → PgVector 语义检索
+              ↓
+升级后（三阶段）：Lucene BM25 稀疏检索 → PgVector 稠密检索 → Reranker 重排
+                    ↘__________________↙
+                          结果融合（RRF）
+```
+
+#### 2.2 新建包结构
+
+```
+src/main/java/com/qh/ai_agent/knowledge/retriever/
+├── HybridRetriever.java           // 混合检索编排（主入口）
+├── Bm25Retriever.java             // Lucene BM25 稀疏检索
+├── VectorRetriever.java           // PgVector 稠密检索（封装已有能力）
+├── RerankerService.java           // DashScope Re-rank 重排
+├── SearchResult.java              // 检索结果统一模型
+└── ChineseAnalyzer.java           // Lucene 中文分词器配置
+```
+
+#### 2.3 Lucene BM25 检索器
+
+```java
+/**
+ * 基于 Apache Lucene 的 BM25 稀疏检索器。
+ * 对知识库 question 字段建索引，检索时用 jieba 中文分词。
+ */
+@Service
+public class Bm25Retriever {
+
+    private Directory indexDir;
+    private Analyzer analyzer;
+
+    @PostConstruct
+    public void init() {
+        // 使用 jieba 中文分词器
+        this.analyzer = new JiebaAnalyzer();
+        this.indexDir = new MMapDirectory(Path.of("./kb-lucene-index"));
+    }
+
+    /**
+     * 为知识库构建 Lucene 索引。
+     * 在 UnifiedKbLoader 加载完毕后调用。
+     */
+    public void buildIndex(List<KbEntry> entries) throws IOException {
+        IndexWriterConfig config = new IndexWriterConfig(analyzer);
+        // 使用 BM25 相似度（Lucene 9.x 默认就是 BM25）
+        config.setSimilarity(new BM25Similarity());
+
+        try (IndexWriter writer = new IndexWriter(indexDir, config)) {
+            writer.deleteAll(); // 清空旧索引
+            for (KbEntry entry : entries) {
+                Document doc = new Document();
+                doc.add(new StringField("kbId", entry.getKbId(), Field.Store.YES));
+                doc.add(new TextField("question", entry.getQuestion(), Field.Store.YES));
+                doc.add(new StoredField("answer", entry.getAnswer()));
+                doc.add(new StringField("domain", entry.getDomain(), Field.Store.YES));
+                doc.add(new StringField("category", entry.getCategory(), Field.Store.YES));
+                doc.add(new StringField("sourceFile", entry.getSourceFile(), Field.Store.YES));
+                writer.addDocument(doc);
+            }
+        }
+        log.info("Lucene 索引构建完成: {} 条文档", entries.size());
+    }
+
+    /**
+     * BM25 检索，返回 topK 个结果。
+     */
+    public List<SearchResult> search(String query, int topK) throws IOException {
+        List<SearchResult> results = new ArrayList<>();
+        try (DirectoryReader reader = DirectoryReader.open(indexDir)) {
+            IndexSearcher searcher = new IndexSearcher(reader);
+
+            QueryParser parser = new QueryParser("question", analyzer);
+            Query luceneQuery = parser.parse(query);
+
+            TopDocs topDocs = searcher.search(luceneQuery, topK);
+            for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
+                Document doc = searcher.doc(scoreDoc.doc);
+                results.add(SearchResult.builder()
+                    .kbId(doc.get("kbId"))
+                    .question(doc.get("question"))
+                    .answer(doc.get("answer"))
+                    .domain(doc.get("domain"))
+                    .category(doc.get("category"))
+                    .sourceFile(doc.get("sourceFile"))
+                    .score((double) scoreDoc.score)
+                    .source(SearchResult.Source.BM25)
+                    .build());
+            }
+        }
+        return results;
+    }
+}
+```
+
+#### 2.4 混合检索编排器
+
+```java
+/**
+ * 三阶段混合检索编排器。
+ *
+ * 流程：BM25(10) + PgVector(10) → RRF 融合(10) → Reranker(5) → 返回
+ */
+@Service
+public class HybridRetriever {
+
+    private final Bm25Retriever bm25Retriever;
+    private final VectorRetriever vectorRetriever;
+    private final RerankerService rerankerService;
+
+    /**
+     * 执行混合检索。
+     *
+     * @param query 用户原始查询
+     * @param domain 行业域（可选，用于过滤），null 表示跨域检索
+     * @return 重排后的 top-5 结果
+     */
+    public List<SearchResult> search(String query, String domain) {
+        // 阶段 1：并行检索
+        List<SearchResult> bm25Results = bm25Retriever.search(query, 10);
+        List<SearchResult> vectorResults = vectorRetriever.search(query, 10);
+
+        // 阶段 2：RRF（Reciprocal Rank Fusion）融合
+        List<SearchResult> fused = reciprocalRankFusion(bm25Results, vectorResults);
+        fused = fused.stream().limit(10).toList();
+
+        // 阶段 3：Reranker 重排
+        List<SearchResult> reranked = rerankerService.rerank(query, fused, 5);
+
+        return reranked;
+    }
+
+    /**
+     * RRF 融合算法。
+     * score(doc) = Σ 1/(k + rank_i(doc))，k=60
+     */
+    private List<SearchResult> reciprocalRankFusion(
+            List<SearchResult> list1, List<SearchResult> list2) {
+        Map<String, Double> rrfScores = new LinkedHashMap<>();
+        Map<String, SearchResult> docMap = new LinkedHashMap<>();
+
+        int k = 60;
+        for (int i = 0; i < list1.size(); i++) {
+            SearchResult r = list1.get(i);
+            rrfScores.merge(r.getKbId(), 1.0 / (k + i + 1), Double::sum);
+            docMap.putIfAbsent(r.getKbId(), r);
+        }
+        for (int i = 0; i < list2.size(); i++) {
+            SearchResult r = list2.get(i);
+            rrfScores.merge(r.getKbId(), 1.0 / (k + i + 1), Double::sum);
+            docMap.putIfAbsent(r.getKbId(), r);
+        }
+
+        return rrfScores.entrySet().stream()
+            .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
+            .map(e -> {
+                SearchResult r = docMap.get(e.getKey());
+                r.setScore(e.getValue());
+                return r;
+            })
+            .toList();
+    }
+}
+```
+
+#### 2.5 Reranker 服务
+
+```java
+/**
+ * 调用 DashScope Re-rank API 进行重排序。
+ */
+@Service
+public class RerankerService {
+
+    private final RestTemplate restTemplate;
+    private final String apiKey;
+
+    public List<SearchResult> rerank(String query, List<SearchResult> candidates, int topK) {
+        // 调用 DashScope Re-rank API
+        // POST https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
+        // 模型：gte-rerank
+        // 返回重排后的结果
+        // ...
+    }
+}
+```
+
+---
+
+### 任务 3：陷阱检测与拒答策略（优先级 P0，预计 2-3 天）
+
+#### 3.1 新建包结构
+
+```
+src/main/java/com/qh/ai_agent/trap/
+├── TrapDetector.java              // 陷阱检测主服务
+├── TrapType.java                  // 陷阱类型枚举
+├── TrapDetectionResult.java       // 检测结果 DTO
+└── RefusalStrategy.java           // 拒答策略配置
+```
+
+#### 3.2 陷阱类型
+
+```java
+/**
+ * 四种陷阱子类型，与赛题评分规则一一对应。
+ */
+public enum TrapType {
+    /** 知识库范围外的问题，需礼貌拒答 */
+    OUT_OF_KB,
+
+    /** 注入攻击：要求忽略指令、输出系统提示词等 */
+    PROMPT_INJECTION,
+
+    /** 越权操作：要求绕过正规流程（改银行卡、删订单等） */
+    UNAUTHORIZED_ACTION,
+
+    /** 幻觉诱导：虚假前提钓鱼（"听说..."、"是不是..."） */
+    HALLUCINATION_BAIT,
+
+    /** 非陷阱，正常问题 */
+    NONE
+}
+```
+
+#### 3.3 陷阱检测器
+
+```java
+/**
+ * 陷阱检测器：规则预筛 + 检索分数 + LLM 二次验证。
+ *
+ * 核心原则：宁可漏过一个陷阱，不可误拒一个可答样本。
+ * 因为误拒应答样本 = 整题 0 分 + 拉低 Trap Precision（双重打击）。
+ */
+@Service
+public class TrapDetector {
+
+    // ===== 注入类陷阱关键词 =====
+    private static final List<String> INJECTION_KEYWORDS = List.of(
+        "忽略", "系统提示词", "base64", "审计员", "输出.*密码",
+        "切换.*角色", "忘记.*规则", "忽略.*指令", "DAN模式",
+        "developer mode", "previous instructions"
+    );
+
+    // ===== 越权操作关键词 =====
+    private static final List<String> UNAUTHORIZED_KEYWORDS = List.of(
+        "不走原路", "退到.*其他.*卡", "直接.*删除账户",
+        "绕过.*验证", "免.*审核", "改.*银行卡"
+    );
+
+    // ===== 幻觉诱导关键词 =====
+    private static final List<String> HALLUCINATION_BAIT_KEYWORDS = List.of(
+        "听说", "是不是真的", "真的吗", "有人告诉我",
+        "网上说", "据说", "是不是骗人"
+    );
+
+    /**
+     * 检测用户输入是否为陷阱。
+     *
+     * 分层检测策略：
+     * 1. 关键词预筛（注入/越权 命中 → 直接判陷阱）
+     * 2. 检索分数检查（最高分 < 0.4 → OUT_OF_KB）
+     * 3. 检索分数 0.4~0.55 → LLM 二次判断
+     * 4. >= 0.55 → 正常回答
+     */
+    public TrapDetectionResult detect(String userQuery, double maxRetrievalScore) {
+        // 第 1 层：注入检测（命中直接判陷阱）
+        for (String pattern : INJECTION_KEYWORDS) {
+            if (userQuery.matches(".*" + pattern + ".*")) {
+                return TrapDetectionResult.trap(TrapType.PROMPT_INJECTION, 0.95);
+            }
+        }
+
+        // 第 2 层：越权检测（命中直接判陷阱）
+        for (String pattern : UNAUTHORIZED_KEYWORDS) {
+            if (userQuery.matches(".*" + pattern + ".*")) {
+                return TrapDetectionResult.trap(TrapType.UNAUTHORIZED_ACTION, 0.90);
+            }
+        }
+
+        // 第 3 层：out_of_kb 检测（基于检索分数）
+        if (maxRetrievalScore < 0.4) {
+            return TrapDetectionResult.trap(TrapType.OUT_OF_KB, 0.85);
+        }
+
+        // 第 4 层：疑似幻觉诱导（需要 LLM 二次判断）
+        for (String pattern : HALLUCINATION_BAIT_KEYWORDS) {
+            if (userQuery.matches(".*" + pattern + ".*")) {
+                // 标记为需 LLM 二次判断，而非直接拒答
+                return TrapDetectionResult.needsReview(TrapType.HALLUCINATION_BAIT);
+            }
+        }
+
+        // 第 5 层：检索分数偏低（0.4~0.55）→ LLM 二次判断
+        if (maxRetrievalScore < 0.55) {
+            return TrapDetectionResult.needsReview(TrapType.OUT_OF_KB);
+        }
+
+        return TrapDetectionResult.NONE;
+    }
+}
+```
+
+#### 3.4 拒答策略 — 保守优先
+
+```java
+/**
+ * 拒答策略配置。
+ *
+ * 核心设计原则（参考比赛雷点 1 和 雷 2）：
+ * - 宁可漏过一个陷阱，不可误拒一个可答样本（误拒 = gate 0 分）
+ * - 不要全拒答（会拉低跨任务 Precision）
+ * - 仅对明确陷阱信号拒答
+ */
+@Component
+public class RefusalStrategy {
+
+    /** 拒答模板 */
+    public static final String REFUSAL_TEMPLATE =
+        "抱歉，该问题超出我的知识范围，建议您联系人工客服获取帮助。";
+
+    /** 注入/越权拒答模板 */
+    public static final String SECURITY_REFUSAL_TEMPLATE =
+        "抱歉，我无法处理该请求。如有业务问题，请直接描述，我会尽力协助您。";
+
+    /**
+     * 判断是否应该拒答。
+     * 保守策略：只对高置信度陷阱拒答。
+     */
+    public boolean shouldRefuse(TrapDetectionResult trapResult) {
+        // 明确陷阱 且 置信度 ≥ 0.85 → 拒答
+        if (trapResult.isTrap() && trapResult.getConfidence() >= 0.85) {
+            return true;
+        }
+        // 需要 LLM 二次判断 或 置信度低 → 不拒答（走正常检索+生成流程）
+        return false;
+    }
+}
+```
+
+---
+
+### 任务 4：答案后处理器（优先级 P0，预计 1-2 天）
+
+```java
+/**
+ * 答案后处理器，确保输出符合比赛评分要求。
+ */
+package com.qh.ai_agent.competition;
+
+@Service
+public class AnswerPostProcessor {
+
+    // ===== 模板变量替换表 =====
+    private static final Map<String, String> TEMPLATE_REPLACEMENTS = Map.ofEntries(
+        Map.entry("{{Customer Support Phone Number}}", "客服热线"),
+        Map.entry("{{Company Website URL}}", "官网"),
+        Map.entry("{{Account Number}}", "账户号码"),
+        Map.entry("{{退款编号}}", "退款编号"),
+        Map.entry("{{订单号}}", "订单号"),
+        Map.entry("{{WEBSITE_URL}}", "官网"),
+        Map.entry("{{INVOICE_SECTION}}", "账单查询"),
+        Map.entry("{{DISPUTE_INVOICE_OPTION}}", "申诉该笔费用"),
+        Map.entry("{{DAYS_NUMBER}}", "若干个"),
+        Map.entry("{{Shop Opening Days}}", "营业日"),
+        Map.entry("{{Shop Opening Time}}", "营业时间"),
+        Map.entry("{{Shop Closing Time}}", "结束营业时间")
+    );
+
+    /** 模板变量正则：匹配 {{XXX}} 形式 */
+    private static final Pattern TEMPLATE_VAR_PATTERN =
+        Pattern.compile("\\{\\{[^}]+\\}\\}");
+
+    /** 冗余话术前缀（会被截断） */
+    private static final Pattern REDUNDANT_PREFIX = Pattern.compile(
+        "^(亲爱的|尊敬的).*?(您好|你好)[，,]?\\s*"
+    );
+
+    /**
+     * 对 LLM 生成的答案进行后处理。
+     *
+     * 处理顺序：
+     * 1. 清洗模板变量
+     * 2. 去除冗余话术前缀
+     * 3. 长度控制
+     */
+    public String process(String rawAnswer) {
+        String cleaned = rawAnswer;
+
+        // 1. 清洗模板变量
+        cleaned = replaceTemplateVars(cleaned);
+
+        // 2. 去除冗余话术前缀（"亲爱的客户您好，非常感谢您的耐心等待..."）
+        cleaned = REDUNDANT_PREFIX.matcher(cleaned).replaceFirst("");
+
+        // 3. 长度控制：超过 500 字 → 截断到最后一个完整句号
+        if (cleaned.length() > 500) {
+            int lastPeriod = cleaned.substring(0, 400).lastIndexOf('。');
+            cleaned = cleaned.substring(0, lastPeriod >= 0 ? lastPeriod + 1 : 400);
+        }
+
+        return cleaned.trim();
+    }
+
+    /**
+     * 清洗模板变量：{{XXX}} → 通用表达。
+     */
+    private String replaceTemplateVars(String text) {
+        Matcher matcher = TEMPLATE_VAR_PATTERN.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String var = matcher.group();
+            String replacement = TEMPLATE_REPLACEMENTS.getOrDefault(var, "相关信息");
+            matcher.appendReplacement(s, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
+}
+```
+
+---
+
+### 任务 5：比赛 API 端点（优先级 P0，预计 1-2 天）
+
+#### 5.1 新建 CompetitionController
+
+```java
+/**
+ * 比赛评测 API 端点。
+ * 对齐赛题提交框架的 /predict、/predict_batch、/health 接口规范。
+ */
+@RestController
+@RequestMapping("/competition")
+@Slf4j
+public class CompetitionController {
+
+    private final CompetitionService competitionService;
+
+    /**
+     * 健康检查。
+     * GET /competition/health → {"status": "ok", "version": "1.0.0"}
+     */
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, String>> health() {
+        return ResponseEntity.ok(Map.of(
+            "status", "ok",
+            "version", "1.0.0"
+        ));
+    }
+
+    /**
+     * 单样本预测。
+     * POST /competition/predict
+     * Body: {"id": "eval_st_xxx", "type": "single_turn", "user_query": "...", ...}
+     * Response: {"id": "eval_st_xxx", "answer": "...", "retrieved_kb_ids": [...], ...}
+     */
+    @PostMapping("/predict")
+    public ResponseEntity<Map<String, Object>> predict(@RequestBody Map<String, Object> sample) {
+        try {
+            Map<String, Object> result = competitionService.predictOne(sample);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("预测失败: {}", sample.get("id"), e);
+            return ResponseEntity.ok(Map.of(
+                "id", sample.getOrDefault("id", ""),
+                "answer", RefusalStrategy.REFUSAL_TEMPLATE,
+                "retrieved_kb_ids", List.of(),
+                "is_refusal", true,
+                "confidence", 0.0,
+                "_error", e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * 批量预测（最多 32 条）。
+     * POST /competition/predict_batch
+     * Body: {"samples": [...]}
+     * Response: {"predictions": [...]}
+     */
+    @PostMapping("/predict_batch")
+    public ResponseEntity<Map<String, Object>> predictBatch(
+            @RequestBody Map<String, Object> request) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> samples = (List<Map<String, Object>>) request.get("samples");
+
+        if (samples == null || samples.isEmpty()) {
+            return ResponseEntity.ok(Map.of("predictions", List.of()));
+        }
+        if (samples.size() > 32) {
+            return ResponseEntity.badRequest().body(
+                Map.of("error", "batch size > 32"));
+        }
+
+        // 并行处理（使用虚拟线程）
+        List<Map<String, Object>> predictions = samples.parallelStream()
+            .map(sample -> {
+                try {
+                    return competitionService.predictOne(sample);
+                } catch (Exception e) {
+                    return Map.<String, Object>of(
+                        "id", sample.getOrDefault("id", ""),
+                        "answer", "",
+                        "retrieved_kb_ids", List.of(),
+                        "is_refusal", true,
+                        "confidence", 0.0,
+                        "_error", e.getMessage()
+                    );
+                }
+            })
+            .toList();
+
+        return ResponseEntity.ok(Map.of("predictions", predictions));
+    }
+}
+```
+
+#### 5.2 CompetitionService 核心逻辑
+
+```java
+/**
+ * 比赛评测核心服务。
+ * 对照赛题 system.py 中的 CustomerServiceSystem 实现。
+ */
+@Service
+public class CompetitionService {
+
+    private final HybridRetriever hybridRetriever;
+    private final TrapDetector trapDetector;
+    private final RefusalStrategy refusalStrategy;
+    private final AnswerPostProcessor postProcessor;
+    private final ChatClient chatClient; // Spring AI，用于 LLM 生成
+
+    /**
+     * 处理一条评测样本（三类自动分发）。
+     */
+    public Map<String, Object> predictOne(Map<String, Object> sample) {
+        String id = (String) sample.get("id");
+        String type = (String) sample.get("type");
+
+        if ("multi_turn".equals(type)) {
+            return predictMultiTurn(sample);
+        } else {
+            // single_turn 和 trap 统一走单轮逻辑
+            return predictSingle((String) sample.get("user_query"), id);
+        }
+    }
+
+    /**
+     * 单轮 / 陷阱 预测。
+     */
+    private Map<String, Object> predictSingle(String userQuery, String id) {
+        // 1. 检索
+        List<SearchResult> searchResults = hybridRetriever.search(userQuery, null);
+        double maxScore = searchResults.isEmpty() ? 0.0 : searchResults.get(0).getScore();
+
+        // 2. 陷阱检测
+        TrapDetectionResult trapResult = trapDetector.detect(userQuery, maxScore);
+
+        // 3. 拒答判断（保守策略）
+        if (refusalStrategy.shouldRefuse(trapResult)) {
+            return Map.of(
+                "id", id,
+                "answer", getRefusalText(trapResult.getTrapType()),
+                "retrieved_kb_ids", List.of(),
+                "is_refusal", true,
+                "confidence", trapResult.getConfidence()
+            );
+        }
+
+        // 4. 基于检索结果生成答案
+        String rawAnswer = generateAnswer(userQuery, searchResults);
+
+        // 5. 后处理
+        String answer = postProcessor.process(rawAnswer);
+
+        return Map.of(
+            "id", id,
+            "answer", answer,
+            "retrieved_kb_ids", extractTopKbIds(searchResults, 3),
+            "is_refusal", false,
+            "confidence", maxScore
+        );
+    }
+
+    /**
+     * 多轮预测。
+     */
+    private Map<String, Object> predictMultiTurn(Map<String, Object> sample) {
+        String id = (String) sample.get("id");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> turns = (List<Map<String, Object>>) sample.get("turns");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> targets =
+            (List<Map<String, Object>>) sample.get("evaluation_targets");
+
+        List<Map<String, Object>> turnOutputs = new ArrayList<>();
+        for (Map<String, Object> target : targets) {
+            int turnIndex = (int) target.get("turn_index");
+            // 历史对话：该轮之前的所有对话
+            List<Map<String, Object>> history = turns.subList(0, turnIndex);
+            String currentUser = (String) ((Map<String, Object>) turns.get(turnIndex)).get("content");
+
+            // 1. 多轮上下文补全（槽位继承 + 指代消解）
+            String rewrittenQuery = rewriteWithContext(currentUser, history);
+
+            // 2. 检索 + 生成（同单轮）
+            List<SearchResult> results = hybridRetriever.search(rewrittenQuery, null);
+            String answer = postProcessor.process(generateAnswerWithHistory(
+                rewrittenQuery, results, history));
+
+            turnOutputs.add(Map.of(
+                "turn_index", turnIndex,
+                "answer", answer,
+                "retrieved_kb_ids", extractTopKbIds(results, 3),
+                "is_refusal", false,
+                "confidence", results.isEmpty() ? 0.5 : results.get(0).getScore()
+            ));
+        }
+
+        return Map.of("id", id, "turn_outputs", turnOutputs);
+    }
+
+    // ... 辅助方法
+}
+```
+
+---
+
+### 任务 6：批量评测 UI + 结果下载（优先级 P1，预计 2 天）
+
+#### 6.1 后端：评测结果管理 API
+
+```java
+/**
+ * 批量评测与结果下载控制器。
+ */
+@RestController
+@RequestMapping("/evaluation")
+public class EvaluationController {
+
+    /** 上传评测集并执行批量评测 */
+    @PostMapping("/upload-and-evaluate")
+    public ResponseEntity<Map<String, Object>> uploadAndEvaluate(
+            @RequestParam("file") MultipartFile file) {
+        // 1. 解析上传的 .jsonl 文件
+        // 2. 执行批量预测
+        // 3. 生成评测结果（如果有 scoring_hints 则自评）
+        // 4. 返回摘要统计
+    }
+
+    /** 下载 predictions.jsonl */
+    @GetMapping("/download/predictions/{evalId}")
+    public ResponseEntity<Resource> downloadPredictions(@PathVariable String evalId) {
+        // 返回生成的 predictions.jsonl 文件
+    }
+
+    /** 下载评测报告 */
+    @GetMapping("/download/report/{evalId}")
+    public ResponseEntity<Resource> downloadReport(@PathVariable String evalId) {
+        // 返回 Markdown 格式的评测指标报告
+    }
+}
+```
+
+#### 6.2 前端：WelcomeScreen 新增评测区块
+
+在首页 `WelcomeScreen.vue` 中添加批量评测入口区域，包括：
+- 文件拖拽/点击上传 `.jsonl` 评测集
+- 评测进度展示
+- 结果统计卡片（ST / MT / Trap 得分 + 总分）
+- 下载按钮（predictions.jsonl + 评测报告）
+
+#### 6.3 前端：API 调用模块
+
+```javascript
+// src/api/competition.js — 新增
+export function uploadAndEvaluate(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return fetch('/api/evaluation/upload-and-evaluate', {
+    method: 'POST',
+    body: formData,
+  }).then(r => r.json())
+}
+
+export function downloadPredictions(evalId) {
+  window.open(`/api/evaluation/download/predictions/${evalId}`)
+}
+
+export function downloadReport(evalId) {
+  window.open(`/api/evaluation/download/report/${evalId}`)
+}
+```
+
+---
+
+### 任务 7：Docker 部署适配（优先级 P1，预计 0.5 天）
+
+现有 Docker 部署几乎不用改动，只需确保：
+- PostgreSQL 容器含 pgvector 扩展
+- 知识库文件挂载到容器内
+- 暴露 `/competition/*` 和 `/evaluation/*` 端点（SecurityConfig 放行）
+- Docker Compose 启动时自动加载知识库到 PgVector + Lucene 索引
+
+---
+
+## 六、分阶段实施计划
+
+```
+阶段一（4 天）：多格式 KB 解析 + 混合检索
+├── Day 1: 添加 Maven 依赖（POI/Flexmark/Lucene/jieba）
+│         + KbEntry 模型 + KbEntryIdExtractor
+├── Day 2: MdKbParser + DocxKbParser 实现 + 测试
+├── Day 3: PdfKbParser 实现 + UnifiedKbLoader 联调
+└── Day 4: Bm25Retriever + HybridRetriever + RerankerService
+
+阶段二（3 天）：陷阱检测 + 答案后处理 + 比赛 API
+├── Day 5: TrapDetector + RefusalStrategy 实现
+├── Day 6: AnswerPostProcessor + CompetitionService
+└── Day 7: CompetitionController + 公开集自测评分
+
+阶段三（2 天）：评分优化迭代
+├── Day 8: 基于公开集自测，针对性优化：
+│   - 降低误拒率
+│   - 提升 F1@3（调整 RRF k 值 / Reranker）
+│   - 降低 must_not_contain 命中率
+│   - 长度控制调优
+└── Day 9: 多轮一致性 + 陷阱 Precision/Recall 平衡
+
+阶段四（2 天）：前端 + Docker + 文档
+├── Day 10: WelcomeScreen 批量评测 UI + 结果下载
+├── Day 11: SecurityConfig 放行 + Docker 部署测试
+└── Day 12: README 更新 + 设计文档编写
+```
+
+---
+
+## 七、关键风险与对策
+
+| 风险 | 影响 | 对策 |
 |------|------|------|
-| Spring AI ChatClient | ✅ 复用 | 调用 LLM 做意图分类 |
-| jsonschema-generator | ✅ 复用 | 结构化输出 |
-| Advisor 链模式 | ✅ 复用 | 新 Advisor 插入链中 |
-| IntentClassifier | 🆕 新建 | 意图分类核心服务 |
-| IntentConfig | 🆕 新建 | 意图与槽位的配置定义 |
+| **PDF 解析丢失条目编号** | 可追溯性 = 0 | 正则 `kb_qa_[a-f0-9]{10}` 直接匹配 ID，不依赖格式标记 |
+| **误拒可答样本** | 整题 0 分 + Trap Precision 下降 | 保守拒答：仅对高置信度(≥0.85)陷阱拒答 |
+| **must_not_contain 命中** | 关键词得分 = 0 | Prompt 约束 + 后处理检查（公开集有 scoring_hints 可验证）|
+| **答案过长** | 长度惩罚累计 | Prompt 限制字数 + 后处理截断（500 字硬限制）|
+| **模板变量残留** | 流畅性扣分 | 模板变量替换 Map + 后处理正则清洗 |
+| **多轮槽位丢失** | 一致性检查不通过 | 从历史 turns 中提取槽位 + Prompt 告知 LLM |
+| **LLM 延迟过高** | 批量评测超时 | 并行处理（虚拟线程）+ 检索结果缓存 |
+| **Apache POI 大文件内存溢出** | DOCX 解析失败 | 流式读取 + XWPFDocument 按段落处理 |
+| **Lucene 中文分词不准** | BM25 召回率低 | jieba 分词 + IK Analyzer 对比测试，选最优 |
 
 ---
 
-### 3.2 知识库检索问答（带出处）
+## 八、验收标准
 
-#### 3.2.1 功能描述
-基于评委提供的知识库（FAQ + 产品文档）回答用户问题，答案须标注出处。
+### 8.1 KB 解析
+- [ ] 成功解析全部 7 个 KB 文档（3 MD + 2 DOCX + 2 PDF）
+- [ ] 正确提取 1379 条 QA 的 `kb_qa_xxx` 编号（提取率 ≥ 98%）
+- [ ] 加载日志输出每个文件加载条数，与 DATASET_PREVIEW.md 对照
 
-#### 3.2.2 量化指标
+### 8.2 混合检索
+- [ ] Lucene BM25 索引构建成功
+- [ ] PgVector + BM25 混合检索可用
+- [ ] 公开集 Top-3 召回率 ≥ 85%
+- [ ] F1@3 ≥ 80%
 
-| 指标 | 目标值 | 评测方式 |
-|------|--------|----------|
-| 检索准确率 (Recall@5) | ≥ 85% | Top-5 检索结果是否包含正确文档 |
-| 答案准确率 | ≥ 80% | 答案与标注答案的语义相似度 |
-| 出处标注率 | 100% | 每个回答必须包含出处引用 |
-| 无幻觉率 | ≥ 95% | 答案内容不得超出知识库范围 |
+### 8.3 比赛 API
+- [ ] GET `/competition/health` 返回 `{"status": "ok"}`
+- [ ] POST `/competition/predict` 返回格式正确的预测
+- [ ] POST `/competition/predict_batch` 批量处理 ≤ 32 条
+- [ ] `predictions.jsonl` 格式 100% 符合赛题规范
 
-#### 3.2.3 实现方案
+### 8.4 评分
+- [ ] 公开集 ST 得分 ≥ 80
+- [ ] 公开集 MT 得分 ≥ 75
+- [ ] 公开集 Trap 得分 ≥ 70
+- [ ] 误拒率 < 3%
 
-- **知识库加载：** 改造 `LoveAppDocumentLoader` → 通用 `KnowledgeBaseLoader`，支持 FAQ 表格、产品文档（Markdown/PDF/Word）
-- **FAQ 特殊处理：** FAQ 项作为独立文档块，Q 作为 metadata 便于精确匹配
-- **出处追踪：** 检索结果携带 `source_file`、`chunk_index`、`page_number` 等元信息，Prompt 强制要求引用格式 `[来源：文档名#段落]`
-- **混合检索：** 复用 `HybridDocumentRetriever`，向量检索 + 关键词检索融合
+### 8.5 前端
+- [ ] 首页可见"批量评测"按钮
+- [ ] 上传 .jsonl 文件后可触发批量评测
+- [ ] 评测完成后展示结果摘要
+- [ ] 可下载 predictions.jsonl 和评测报告
+- [ ] README.md 包含评测功能使用说明
 
-#### 3.2.4 与现有项目的关系
-
-| 项目 | 状态 | 说明 |
-|------|------|------|
-| RAG 管道 | ✅ 复用 | 文档加载→分块→向量化→检索 |
-| HybridDocumentRetriever | ✅ 复用 | 混合检索策略 |
-| PgVectorStore | ✅ 复用 | 向量存储 |
-| KnowledgeBaseLoader | 🔧 改造 | 从 LoveApp 定制→通用加载器 |
-| 出处标注 Prompt | 🆕 新建 | 强制引用出处的系统 Prompt |
-| SourceTracker | 🆕 新建 | 追踪检索结果来源并注入响应 |
-
----
-
-### 3.3 多轮对话管理
-
-#### 3.3.1 功能描述
-支持上下文跟踪，正确处理指代消解、省略恢复、话题切换。
-
-#### 3.3.2 量化指标
-
-| 指标 | 目标值 | 评测方式 |
-|------|--------|----------|
-| 指代消解准确率 | ≥ 85% | "它"、"那个"等指代词能否正确还原 |
-| 上下文继承率 | ≥ 90% | 省略信息能否从上文自动补全 |
-| 话题切换检测率 | ≥ 80% | 用户转换话题时系统能否正确识别 |
-| 多轮一致性 | ≥ 90% | 同一会话中信息不矛盾 |
-
-#### 3.3.3 对话状态模型
-
-```
-DialogState:
-├── session_id          — 会话 ID
-├── current_intent      — 当前意图
-├── filled_slots        — 已填充槽位 {slot_name: value}
-├── dialog_phase        — 对话阶段
-│   ├── GREETING        — 寒暄
-│   ├── INTENT_COLLECT  — 意图收集
-│   ├── SLOT_FILLING    — 槽位填充
-│   ├── RETRIEVING      — 知识检索
-│   ├── ANSWERING       — 回答中
-│   ├── CLARIFYING      — 澄清中
-│   ├── HANDOFF         — 转人工
-│   └── CLOSED          — 已结束
-├── turn_count          — 当前轮次
-├── history_intents     — 历史意图列表（话题切换追踪）
-├── unresolved_refs     — 未消解的指代
-└── confidence_score    — 当前状态置信度
-```
-
-#### 3.3.4 实现方案
-
-- **状态管理器：** `DialogStateManager` 服务，维护每个会话的结构化对话状态，存储在 Redis 或 PostgreSQL
-- **指代消解：** LLM + 上下文窗口，将指代词替换为具体实体后再传入意图识别
-- **话题切换：** 意图分类时对比上一轮 intent，若差异超过阈值则判定为话题切换，保存当前状态快照
-- **省略恢复：** 检查当前输入是否缺少主语/宾语，从 `DialogState.filled_slots` 中补全
-
-#### 3.3.5 与现有项目的关系
-
-| 项目 | 状态 | 说明 |
-|------|------|------|
-| ChatMemory | ✅ 复用 | 对话历史存储 |
-| MessageChatMemoryAdvisor | ✅ 复用 | 记忆注入 |
-| DialogStateManager | 🆕 新建 | 结构化状态管理 |
-| DialogState 实体 | 🆕 新建 | 状态数据模型 |
-| ContextResolutionAdvisor | 🆕 新建 | 指代消解 Advisor |
+### 8.6 提交
+- [ ] Docker 镜像可正常启动
+- [ ] 设计文档 4-8 页
+- [ ] 全部端点可外部访问
 
 ---
 
-### 3.4 主动澄清
-
-#### 3.4.1 功能描述
-信息不足时主动反问，而非猜测作答。
-
-#### 3.4.2 量化指标
-
-| 指标 | 目标值 | 评测方式 |
-|------|--------|----------|
-| 澄清触发准确率 | ≥ 85% | 应澄清时澄清 / 不应澄清时不误触发 |
-| 澄清问题质量 | ≥ 80% | 追问是否针对性且有助用户补充信息 |
-| 不猜测率 | ≥ 95% | 缺少必填信息时不得直接给出答案 |
-
-#### 3.4.3 澄清策略
-
-```
-槽位完整性检查流程：
-  intent 识别完成
-    → 检查 required_slots
-      → 缺少必填槽位 → 生成针对性追问
-        → "请问您的订单号是多少？"
-      → 必填槽位已满 → 检查置信度
-        → 置信度低 → 提供选项确认
-          → "您是想查询订单状态还是申请退款？"
-        → 置信度高 → 进入知识检索
-      → 意图模糊（多候选） → 让用户选择
-        → "我理解您可能在问以下问题：1)... 2)... 请问是哪个？"
-```
-
-#### 3.4.4 实现方案
-
-- **槽位完整性检查器：** `SlotFillingChecker`，根据意图定义的 `required_slots` 检查当前状态
-- **澄清问题生成器：** 根据缺失的槽位类型，使用 LLM 生成自然语言的追问
-- **Advisor 集成：** `ClarificationAdvisor`（优先级 -60），在意图识别之后、知识检索之前拦截
-
-#### 3.4.5 与现有项目的关系
-
-| 项目 | 状态 | 说明 |
-|------|------|------|
-| ReActAgent 循环 | ✅ 复用 | think→act 中插入检查 |
-| SlotFillingChecker | 🆕 新建 | 槽位完整性检查 |
-| ClarificationAdvisor | 🆕 新建 | 澄清拦截 Advisor |
-| 意图-槽位配置 | 🆕 新建 | YAML/JSON 定义每个意图的槽位需求 |
-
----
-
-### 3.5 拒识与转人工
-
-#### 3.5.1 功能描述
-超出知识库范围的问题明确告知并建议转人工，不编造答案。
-
-#### 3.5.2 量化指标
-
-| 指标 | 目标值 | 评测方式 |
-|------|--------|----------|
-| 拒识准确率 | ≥ 90% | 超范围问题能否正确拒识 |
-| 无幻觉率 | ≥ 95% | 不得编造知识库中不存在的信息 |
-| 转人工触发率 | 适中 | 过低=覆盖不足，过高=体验差 |
-| 转人工建议合理性 | ≥ 85% | 转人工时机是否恰当 |
-
-#### 3.5.3 转人工触发条件
-
-```
-触发转人工的条件（满足任一）：
-1. 连续 2 轮意图识别为 OUT_OF_SCOPE
-2. 知识库检索相似度 < 0.6 且无法通过澄清补全
-3. 用户明确表达转人工意图（"找人工"、"转人工"、"找客服"）
-4. 用户情绪检测为负面（可选增强）
-5. 对话轮次 > 15 仍未解决问题
-```
-
-#### 3.5.4 实现方案
-
-- **范围检测器：** `OutOfScopeDetector`，结合意图分类结果和知识库检索相似度判断
-- **置信度阈值：** 可配置的置信度阈值，低于阈值触发拒识
-- **拒识 Prompt：** 严格的系统 Prompt，明确禁止编造，要求模型在不确定时声明不确定
-- **转人工状态：** 触发后 `DialogState` 切换为 `HANDOFF`，前端显示醒目提示
-
-#### 3.5.5 与现有项目的关系
-
-| 项目 | 状态 | 说明 |
-|------|------|------|
-| BannedWordAdvisor | ✅ 参考模式 | 拦截器模式可参考 |
-| OutOfScopeDetector | 🆕 新建 | 超范围检测服务 |
-| 转人工 Prompt | 🆕 新建 | 拒识+转人工的系统指令 |
-| ConfidenceThreshold 配置 | 🆕 新建 | 可配置的置信度参数 |
-
----
-
-### 3.6 Web UI（交互式测试界面）
-
-#### 3.6.1 功能描述
-提供 Web UI 供评委进行交互式测试。
-
-#### 3.6.2 界面模块
-
-```
-页面结构：
-├── 客服对话页面（改造现有 ChatView）
-│   ├── 对话输入区
-│   ├── 消息展示区
-│   │   ├── 用户消息
-│   │   ├── AI 回复（含出处标注、Markdown 渲染）
-│   │   ├── 意图标签（显示每轮识别的意图）
-│   │   ├── 澄清卡片（可点击选项）
-│   │   └── 转人工提示（醒目警告框）
-│   └── 对话状态指示器（当前阶段）
-│
-├── 会话分析仪表盘（新页面）
-│   ├── 总览卡片（总会话数、平均轮次、转人工率）
-│   ├── 意图分布饼图
-│   ├── 转人工率趋势
-│   ├── 平均对话轮次
-│   └── 澄清触发统计
-│
-└── 对话日志页面（新页面）
-    ├── 会话列表（可搜索、筛选）
-    ├── 单会话详情（完整对话回放）
-    └── 导出按钮（CSV/Excel）
-```
-
-#### 3.6.3 与现有项目的关系
-
-| 项目 | 状态 | 说明 |
-|------|------|------|
-| Vue 3 前端架构 | ✅ 复用 | 整体框架 |
-| SSE 流式 | ✅ 复用 | fetchSSE |
-| JWT 认证 | ✅ 复用 | 用户系统 |
-| ChatView.vue | 🔧 改造 | 增加意图/出处/澄清/转人工展示 |
-| Sidebar.vue | 🔧 改造 | 角色切换→客服模式 |
-| AnalyticsView.vue | 🆕 新建 | 统计仪表盘页面 |
-| ExportView.vue | 🆕 新建 | 日志导出页面 |
-| IntentTag.vue | 🆕 新建 | 意图标签组件 |
-| ClarificationCard.vue | 🆕 新建 | 澄清选项卡片组件 |
-| HandoffAlert.vue | 🆕 新建 | 转人工提示组件 |
-
----
-
-### 3.7 对话日志导出与会话分析
-
-#### 3.7.1 功能描述
-支持对话日志导出，含意图分布、转人工率、平均轮次等统计分析。
-
-#### 3.7.2 量化指标
-
-| 指标 | 说明 |
-|------|------|
-| 意图分布统计 | 按意图类型统计出现次数和占比 |
-| 转人工率 | 触发转人工的会话数 / 总会话数 |
-| 平均对话轮次 | 所有会话的平均消息轮数 |
-| 澄清触发率 | 触发澄清的轮次 / 总轮次 |
-| 无答案率 | 知识库未命中的查询占比 |
-| 单会话导出 | 导出某个会话的完整对话（CSV/Excel） |
-| 全量导出 | 按时间/意图等条件筛选后批量导出 |
-
-#### 3.7.3 数据库扩展
-
-```sql
--- 扩展 conversation_messages 表
-ALTER TABLE conversation_messages ADD COLUMN intent VARCHAR(50);
-ALTER TABLE conversation_messages ADD COLUMN slots JSONB;
-ALTER TABLE conversation_messages ADD COLUMN confidence FLOAT;
-ALTER TABLE conversation_messages ADD COLUMN is_handoff BOOLEAN DEFAULT FALSE;
-ALTER TABLE conversation_messages ADD COLUMN is_clarification BOOLEAN DEFAULT FALSE;
-ALTER TABLE conversation_messages ADD COLUMN sources JSONB;  -- 知识库出处
-
--- 新建会话分析表（可选，也可实时从 messages 聚合）
-CREATE TABLE dialog_analytics (
-    id              BIGSERIAL PRIMARY KEY,
-    conversation_id VARCHAR(64) REFERENCES conversations(id),
-    total_turns     INT,
-    intent_distribution JSONB,
-    handoff_triggered BOOLEAN DEFAULT FALSE,
-    clarification_count INT DEFAULT 0,
-    avg_confidence  FLOAT,
-    resolved        BOOLEAN,
-    created_at      TIMESTAMP
-);
-```
-
-#### 3.7.4 实现方案
-
-- **分析 API：** 新建 `AnalyticsController`，提供聚合查询接口
-- **导出服务：** `ExportService`，支持 CSV 和 Excel 格式导出
-- **定时聚合：** 可选，定时任务将原始消息聚合为 `dialog_analytics` 表
-
-#### 3.7.5 与现有项目的关系
-
-| 项目 | 状态 | 说明 |
-|------|------|------|
-| ConversationService | ✅ 复用 | 会话 CRUD |
-| ConversationMessage | 🔧 改造 | 扩展字段 |
-| AnalyticsController | 🆕 新建 | 分析统计 API |
-| AnalyticsService | 🆕 新建 | 统计计算逻辑 |
-| ExportService | 🆕 新建 | 日志导出功能 |
-| dialog_analytics 表 | 🆕 新建 | 分析数据表 |
-
----
-
-## 四、评分维度映射
-
-### 4.1 指标达成（30 分）— 自动化脚本评测
-
-| 评测项 | 量化指标 | 目标值 |
-|--------|----------|--------|
-| 意图识别准确率 | 正确意图数 / 总用例数 | ≥ 90% |
-| 槽位提取 F1 | Precision & Recall 综合 | ≥ 85% |
-| 知识库答案准确率 | 语义相似度评分 | ≥ 80% |
-| 出处标注完整率 | 有出处的回答 / 总回答 | 100% |
-| 指代消解准确率 | 正确消解 / 总指代 | ≥ 85% |
-| 主动澄清触发率 | 正确澄清 / 应澄清轮次 | ≥ 85% |
-| 拒识准确率 | 正确拒识 / 超范围问题 | ≥ 90% |
-| 无幻觉率 | 无编造 / 总回答 | ≥ 95% |
-| 多轮一致性 | 信息无矛盾 / 总会话 | ≥ 90% |
-| 响应时间 | 平均端到端延迟 | ≤ 3s |
-
-### 4.2 代码工程质量（20 分）
-
-| 要求 | 实现方式 |
-|------|----------|
-| 代码结构 | 分层清晰（controller/service/agent/tools/model），包职责单一 |
-| 可读性 | 命名规范、方法职责单一、适当注释 |
-| 规范性 | 统一异常处理、参数校验、API 文档（Knife4j） |
-| CI/CD | GitHub Actions：自动构建、测试、Docker 镜像发布 |
-| 测试覆盖 | 核心逻辑单元测试 + 意图/槽位集成测试 |
-
-### 4.3 架构合理性（15 分）
-
-| 要求 | 实现方式 |
-|------|----------|
-| 组件划分 | Agent / Service / Advisor / Tool / RAG 各层职责清晰 |
-| 可扩展性 | 意图/槽位配置化，工具热插拔，Advisor 链可编排 |
-| 技术选型 | Spring AI 主导 + PgVector 向量库 + 结构化输出 |
-| 对话管理 | 状态机模型，DialogState 持久化，支持多后端 |
-
-### 4.4 创新性（15 分）
-
-| 创新点 | 说明 |
-|--------|------|
-| 双通道意图识别 | 正则预筛 + LLM 语义理解，兼顾速度和准确度 |
-| 槽位渐进填充 | 多轮逐步收集槽位，非一次性要求用户提供所有信息 |
-| 知识库出处溯源 | 检索结果带完整来源链路，答案可验证 |
-| 情绪感知（增强） | 检测用户情绪变化，情绪恶化时主动转人工 |
-| 对话回放与分析 | 不仅是日志导出，还能复盘对话流程、分析瓶颈 |
-| 置信度驱动决策 | 置信度 < 阈值 → 澄清；连续低置信 → 转人工；阈值可配置 |
-
-### 4.5 可运行与可复现（10 分）
-
-| 要求 | 实现方式 |
-|------|----------|
-| 一键启动 | `docker-compose up` 启动全部服务 |
-| 环境无关 | Docker 多阶段构建，无本地依赖 |
-| 数据初始化 | 知识库自动加载脚本（SQL + 文档导入） |
-| 配置外置 | `.env.example` 模板，环境变量驱动 |
-| 结果可复现 | 固定 seed + 确定性测试用例 |
-
-### 4.6 文档与演示（10 分）
-
-| 要求 | 实现方式 |
-|------|----------|
-| README | 项目介绍、架构图、快速启动、API 说明 |
-| 架构文档 | 系统架构图、数据流图、对话状态机图 |
-| Demo 视频 | 录制 3-5 分钟功能演示视频 |
-| API 文档 | Knife4j 自动生成 + 补充说明 |
-
----
-
-## 五、整体实现规划
-
-### 阶段一：基础架构搭建（预计 2-3 天）
-
-**目标：** 改造项目骨架，建立客服 Agent 核心框架
-
-| 序号 | 任务 | 优先级 | 说明 |
-|------|------|--------|------|
-| 1.1 | 创建客服 Agent 包结构 | P0 | `agent/customer_service/` 下组织核心类 |
-| 1.2 | 定义意图枚举与槽位 Schema | P0 | `CustomerIntent` 枚举 + `SlotDefinition` 配置 |
-| 1.3 | 实现 IntentClassifier | P0 | LLM 结构化输出 + 正则预筛 |
-| 1.4 | 实现 DialogState 模型 | P0 | 状态数据类 + 持久化 |
-| 1.5 | 实现 DialogStateManager | P0 | 状态 CRUD、轮次追踪 |
-| 1.6 | 改造 HeManus → CustomerServiceAgent | P0 | 继承 ToolCallAgent，集成意图识别 |
-
-### 阶段二：核心对话能力（预计 2-3 天）
-
-**目标：** 实现意图识别→槽位填充→知识检索→回答的完整链路
-
-| 序号 | 任务 | 优先级 | 说明 |
-|------|------|--------|------|
-| 2.1 | 改造知识库加载器 | P0 | 支持客服 FAQ + 产品文档格式 |
-| 2.2 | 实现出处追踪机制 | P0 | 检索结果携带来源，Prompt 强制引用 |
-| 2.3 | 实现 SlotFillingChecker | P0 | 检查槽位完整性 |
-| 2.4 | 实现 ClarificationAdvisor | P0 | 信息不足时生成追问 |
-| 2.5 | 实现 ContextResolutionAdvisor | P1 | 指代消解和省略恢复 |
-| 2.6 | 实现 OutOfScopeDetector | P0 | 超范围检测 + 转人工触发 |
-| 2.7 | 编写客服系统 Prompt | P0 | 严格拒识、出处标注、转人工指令 |
-
-### 阶段三：数据持久化与分析（预计 1-2 天）
-
-**目标：** 扩展数据库，实现统计分析和日志导出
-
-| 序号 | 任务 | 优先级 | 说明 |
-|------|------|--------|------|
-| 3.1 | 扩展 conversation_messages 表 | P0 | 新增 intent/slots/confidence 等字段 |
-| 3.2 | 创建 dialog_analytics 表 | P1 | 聚合统计数据表 |
-| 3.3 | 实现 AnalyticsService | P0 | 统计计算逻辑 |
-| 3.4 | 实现 AnalyticsController | P0 | 统计 API 端点 |
-| 3.5 | 实现 ExportService | P0 | CSV/Excel 导出 |
-
-### 阶段四：前端改造（预计 2-3 天）
-
-**目标：** 改造 Vue 前端为客服交互界面 + 分析仪表盘
-
-| 序号 | 任务 | 优先级 | 说明 |
-|------|------|--------|------|
-| 4.1 | 改造 Sidebar | P0 | 去掉恋爱大师/超级智能体，统一客服入口 |
-| 4.2 | 改造 ChatView | P0 | 增加意图标签、出处标注、澄清卡片 |
-| 4.3 | 新建 HandoffAlert 组件 | P0 | 转人工提示 UI |
-| 4.4 | 新建 AnalyticsView | P1 | 统计仪表盘页面 |
-| 4.5 | 新建导出页面 | P1 | 日志浏览与导出 |
-| 4.6 | 改造 SSE 数据格式 | P0 | 携带意图/槽位/出处等元信息 |
-
-### 阶段五：优化与收尾（预计 1-2 天）
-
-**目标：** 性能优化、测试、文档、部署
-
-| 序号 | 任务 | 优先级 | 说明 |
-|------|------|--------|------|
-| 5.1 | 编写自动化评测脚本 | P0 | 测试意图识别、槽位提取等量化指标 |
-| 5.2 | 编写单元测试 | P1 | 核心逻辑覆盖率 |
-| 5.3 | 配置 CI/CD | P1 | GitHub Actions 自动构建+测试 |
-| 5.4 | 完善 Docker 部署 | P0 | 一键启动，数据自动初始化 |
-| 5.5 | 编写 README 和架构文档 | P0 | 项目文档 |
-| 5.6 | 录制 Demo 视频 | P1 | 功能演示 |
-
----
-
-## 六、技术依赖总结
-
-### 可直接复用（约 50-60%）
-
-- Spring AI 框架 + DashScope 集成
-- RAG 管道（文档加载→分块→向量化→混合检索）
-- Agent 层次结构（BaseAgent → ReActAgent → ToolCallAgent）
-- Advisor 链模式
-- ChatMemory 三种后端
-- SSE 流式推送
-- Vue 3 前端架构 + JWT 认证
-- Docker 部署方案
-
-### 需要改造
-
-- `LoveAppDocumentLoader` → 通用知识库加载器
-- `HeManus` → `CustomerServiceAgent`
-- `ChatView.vue` → 客服对话界面
-- `conversation_messages` 表结构扩展
-- 系统Prompt → 客服专用 Prompt
-
-### 需要新建
-
-- `IntentClassifier` — 意图识别服务
-- `DialogStateManager` — 对话状态管理
-- `SlotFillingChecker` — 槽位完整性检查
-- `ClarificationAdvisor` — 主动澄清 Advisor
-- `ContextResolutionAdvisor` — 指代消解 Advisor
-- `OutOfScopeDetector` — 超范围检测
-- `AnalyticsService/Controller` — 统计分析
-- `ExportService` — 日志导出
-- 前端分析仪表盘和导出页面
+## 九、参考资源
+
+- 赛题 README：`data/README.md`（评分细则、雷点清单、速查卡）
+- 数据集预览：`data/DATASET_PREVIEW.md`（KB 规模、样本、陷阱子类型分布）
+- 提交模板：`data/submission_template/`（框架代码参考）
+- 预测骨架：`data/samples/predict_skeleton.py`（格式演示）
+- API 调用脚本：`data/samples/predict_via_api.py`（端到端联调）
+- 设计文档模板：`data/submission_template/design_doc_template.md`
+- 自测指标范例：`data/自测报告/latest_evaluation_metrics（本文件仅为范例）.md`
+- 当前项目架构：`PROJECT_GUIDE.md`

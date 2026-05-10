@@ -1,15 +1,21 @@
-# ========== Stage 1: Build Vue frontend ==========
+# ============ 前端多阶段构建 ============
+
+# 阶段 1: Node 构建
 FROM node:20-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm install --registry=https://registry.npmmirror.com
+WORKDIR /build
+
+COPY package.json package-lock.json* ./
+RUN npm ci --silent 2>/dev/null || npm install --silent
+
 COPY . .
 RUN npm run build
 
-# ========== Stage 2: Serve with nginx ==========
+# 阶段 2: Nginx 运行时
 FROM nginx:alpine
-# 删除默认配置
-RUN rm /etc/nginx/conf.d/default.conf
-COPY --from=builder /app/dist /usr/share/nginx/html
+
+COPY --from=builder /build/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 EXPOSE 80
+
 CMD ["nginx", "-g", "daemon off;"]

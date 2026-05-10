@@ -34,6 +34,8 @@
           :is-clarification="msg.isClarification || false"
           :is-handoff="msg.isHandoff || false"
           :suggested-questions="msg.suggestedQuestions || []"
+          :clarification-options="msg.clarificationOptions || []"
+          :sources="msg.sources || []"
           @ask-question="handleSend"
         />
       </div>
@@ -72,7 +74,7 @@ const messagesAreaRef = ref(null)
 const inputPlaceholder = computed(() =>
   activeAgent.value === 'love'
     ? '输入你想问的恋爱问题...'
-    : '输入你的任务需求...'
+    : '请描述您的问题，例如"查询订单"或"退款政策"...'
 )
 
 function handleSend(text, imageFile, imageUrl) {

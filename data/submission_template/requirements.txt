@@ -1,0 +1,22 @@
+# HTTP 服务框架(必需)
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.7
+
+# LLM 客户端(主办方网关或第三方 API)
+openai>=1.40
+
+# 文档解析(KB 是 MD/DOCX/PDF 多格式)
+python-docx>=1.0
+pypdf>=4.0
+# 可选:pdfminer.six / unstructured / PyMuPDF
+
+# 检索(选手按需选用)
+sentence-transformers>=3.0
+faiss-cpu>=1.8
+rank-bm25>=0.2.2
+jieba>=0.42
+
+# 工具
+orjson>=3.10
+tqdm>=4.66

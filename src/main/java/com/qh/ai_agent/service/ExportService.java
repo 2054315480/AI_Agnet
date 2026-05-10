@@ -70,7 +70,7 @@ public class ExportService {
             writer.write(",");
             writer.write(csvEscape(msg.getIntent()));
             writer.write(",");
-            writer.write(csvEscape(msg.getSlots()));
+            writer.write(csvEscape(msg.getSlots() != null ? msg.getSlots().toString() : ""));
             writer.write(",");
             writer.write(msg.getConfidence() != null ? String.format("%.2f", msg.getConfidence()) : "");
             writer.write(",");
@@ -78,7 +78,7 @@ public class ExportService {
             writer.write(",");
             writer.write(Boolean.TRUE.equals(msg.getIsClarification()) ? "是" : "否");
             writer.write(",");
-            writer.write(csvEscape(msg.getSources()));
+            writer.write(csvEscape(msg.getSources() != null ? msg.getSources().toString() : ""));
             writer.write(",");
             writer.write(msg.getCreatedAt() != null ? msg.getCreatedAt().toString() : "");
             writer.write("\n");

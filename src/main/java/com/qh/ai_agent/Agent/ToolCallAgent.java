@@ -2,7 +2,7 @@ package com.qh.ai_agent.Agent;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
-import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import com.qh.ai_agent.Agent.Model.AgentState;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -59,7 +59,7 @@ public  class ToolCallAgent extends ReActAgent{
         this.availableTools = availableTools;
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager != null ? toolCallingManager : buildToolCallingManager(availableTools);
-        this.chatOptions = DashScopeChatOptions.builder()
+        this.chatOptions = OpenAiChatOptions.builder()
                 .build();
     }
 
@@ -113,22 +113,15 @@ public  class ToolCallAgent extends ReActAgent{
                 .map(msg -> (UserMessage) msg)
                 .anyMatch(msg -> msg.getMedia() != null && !msg.getMedia().isEmpty());
 
-        DashScopeChatOptions options;
+        OpenAiChatOptions.Builder optionsBuilder = OpenAiChatOptions.builder()
+                .internalToolExecutionEnabled(false)
+                .toolCallbacks(Arrays.asList(availableTools));
+
         if (hasMedia && visionModel != null) {
-            options = DashScopeChatOptions.builder()
-                    .internalToolExecutionEnabled(false)
-                    .toolCallbacks(Arrays.asList(availableTools))
-                    .withModel(visionModel)
-                    .withMultiModel(true)
-                    .withEnableThinking(false)
-                    .build();
-        } else {
-            options = DashScopeChatOptions.builder()
-                    .internalToolExecutionEnabled(false)
-                    .toolCallbacks(Arrays.asList(availableTools))
-                    .withEnableThinking(chatEnableThinking)
-                    .build();
+            optionsBuilder.model(visionModel);
         }
+
+        OpenAiChatOptions options = optionsBuilder.build();
 
         Prompt prompt = new Prompt(allMessages, options);
         try {
@@ -166,7 +159,9 @@ public  class ToolCallAgent extends ReActAgent{
             }
         } catch (Exception e) {
             log.error(getName() + "的思考过程有问题", e);
-            getMessagesList().add(new AssistantMessage("处理时发生了错误: " + e.getClass().getSimpleName() + " - " + e.getMessage()));
+            String errorMsg = "处理时发生了错误: " + e.getClass().getSimpleName() + " - " + e.getMessage();
+            getMessagesList().add(new AssistantMessage(errorMsg));
+            sendSseEvent("answer", "抱歉，" + errorMsg);
             return false;
         }
 

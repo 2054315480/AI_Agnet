@@ -1,6 +1,6 @@
 # AI Agent 项目全景指南
 
-> **版本:** v4.0 | **最后更新:** 2026-04-23 | **作者:** 秋鹤
+> **版本:** v4.5 | **最后更新:** 2026-04-24 | **作者:** 秋鹤
 >
 > 本文档供 AI Agent（Claude Code）快速理解项目全貌。每次修改项目结构、新增模块或变更架构后，请同步更新本文档。
 
@@ -81,7 +81,8 @@ D:\AI_Agent\
 │   │   ├── api/
 │   │   │   ├── auth.js               # 认证模块（单例 ref：user/token/isAuthenticated）
 │   │   │   ├── chat.js               # 客服 SSE API（chatCustomerServiceStream）
-│   │   │   └── admin.js              # 管理 API（FAQ 上传/列表/删除/重载）
+│   │   │   ├── admin.js              # 管理 API（FAQ 上传/列表/删除/重载）
+│   │   │   └── analytics.js          # 分析统计 API（总览/意图分布/会话列表/详情/CSV导出）
 │   │   ├── utils/
 │   │   │   └── sse.js                # SSE 流解析（fetchSSE / fetchMultipartSSE）
 │   │   ├── composables/
@@ -89,16 +90,17 @@ D:\AI_Agent\
 │   │   │   ├── useChat.js            # 客服消息发送（处理 intent/clarification/handoff/suggested_questions 事件）
 │   │   │   └── useTheme.js           # 主题切换（dark/light，localStorage 持久化）
 │   │   ├── components/
-│   │   │   ├── LoginView.vue         # 登录/注册页（左右分栏布局）
+│   │   │   ├── LoginView.vue         # 登录/注册页（Industrial 设计：结构化网格背景 + 排版驱动品牌展示）
 │   │   │   ├── Sidebar.vue           # 侧边栏（智能客服模式 + FAQ 管理入口）
 │   │   │   ├── ChatView.vue          # 聊天主区域（传递 intentInfo/isHandoff/suggestedQuestions 等 props）
-│   │   │   ├── ChatMessage.vue       # 消息气泡（意图标签、澄清提示、转人工警告、推荐问题）
+│   │   │   ├── ChatMessage.vue       # 消息气泡（意图标签、澄清选项、转人工警告、推荐问题、来源标注）
 │   │   │   ├── ChatInput.vue         # 输入框（自动高度、图片上传、快捷发送）
-│   │   │   ├── WelcomeScreen.vue     # 欢迎页（智能客服问候 + 快捷问题）
+│   │   │   ├── WelcomeScreen.vue     # 欢迎页（Industrial 设计：排版层次 + 能力列表 + 快捷 CTA）
 │   │   │   ├── ThemeToggle.vue       # 主题切换按钮
-│   │   │   └── AdminFAQView.vue      # FAQ 管理页面（上传/列表/删除/重载）
+│   │   │   ├── AdminFAQView.vue      # FAQ 管理页面（上传/列表/删除/重载）
+│   │   │   └── AnalyticsView.vue     # 对话分析仪表盘（统计卡片/意图分布图/会话列表/详情回放/CSV导出）
 │   │   ├── router/
-│   │   │   └── index.js              # 路由：/login（guest）、/（需 auth）、/admin/faq（需 auth）
+│   │   │   └── index.js              # 路由：/login（guest）、/（需 auth）、/admin/faq（需 auth）、/analytics（需 auth）
 │   │   └── assets/styles/
 │   │       └── global.css            # 全局 CSS 设计系统（70+ 变量，暗色/亮色主题）
 │   ├── Dockerfile                    # 前端构建 + Nginx 部署
@@ -121,24 +123,25 @@ D:\AI_Agent\
 │   │   ├── ReActAgent.java           # ReAct 模式（think → act 循环）
 │   │   ├── ToolCallAgent.java        # 工具调用（ToolCallingManager、日志增强）
 │   │   ├── customer_service/         # 智能客服 Agent
-│   │   │   ├── CustomerServiceAgent.java  # 客服 Agent（意图+槽位+澄清+转人工+推荐问题推送）
+│   │   │   ├── CustomerServiceAgent.java  # 客服 Agent（意图+槽位+澄清+转人工+槽位填充模式+上下文保存+推荐问题推送）
 │   │   │   └── CustomerServiceTools.java  # 客服工具集（6 个 @Tool，searchKnowledgeBase 支持两级检索）
 │   │   ├── HeManus.java              # 超级智能体（@Component 已注释，保留代码备用）
 │   │   └── Model/
 │   │       └── AgentState.java       # 状态枚举：IDLE / RUNNING / FINISHED / ERROR
 │   │
 │   ├── intent/                       # 意图识别体系（v2.0 新增）
-│   │   ├── IntentClassifier.java     # 意图分类器（LLM 结构化输出 + 正则预筛双通道）
-│   │   ├── IntentConfig.java         # 意图-槽位配置（12 种意图、槽位定义、澄清模板）
+│   │   ├── IntentClassifier.java     # 意图分类器（LLM 结构化输出 + 正则预筛 + 人工关键词预筛 + 上下文增强 + 槽位提取）
+│   │   ├── IntentConfig.java         # 意图-槽位配置（12 种意图、槽位定义、澄清模板，refund_reason 改为 STRING）
 │   │   └── model/
 │   │       ├── CustomerIntent.java   # 意图枚举（12 种：订单/产品/投诉/转人工等）
 │   │       ├── IntentResult.java     # 意图识别结果 DTO（intent + confidence + slots）
-│   │       └── SlotDefinition.java   # 槽位定义（名称/类型/是否必填/枚举值/正则）
+│   │       ├── SlotDefinition.java   # 槽位定义（名称/类型/是否必填/枚举值/正则）
+│   │       └── SlotExtractionResult.java  # 槽位提取结果（轻量级，用于槽位填充模式）
 │   │
 │   ├── dialog/                       # 对话状态管理（v2.0 新增）
 │   │   ├── DialogStateManager.java   # 对话状态管理器（ConcurrentHashMap 缓存）
 │   │   └── model/
-│   │       ├── DialogState.java      # 对话状态（意图/槽位/阶段/轮次/历史）
+│   │       ├── DialogState.java      # 对话状态（意图/槽位/阶段/轮次/历史/lastBotMessage/pendingSlots）
 │   │       └── DialogPhase.java      # 对话阶段枚举（8 个：GREETING→SLOT_FILLING→HANDOFF 等）
 │   │
 │   ├── tools/                        # AI 工具（原有 10 个 + 注册配置）
@@ -202,6 +205,7 @@ D:\AI_Agent\
 │   │   ├── JwtUtil.java              # JWT 工具
 │   │   ├── JwtAuthenticationFilter.java  # JWT 过滤器
 │   │   ├── PasswordConfig.java       # BCryptPasswordEncoder
+│   │   ├── MybatisPlusConfig.java    # MyBatis-Plus 分页插件（PaginationInnerInterceptor）
 │   │   ├── CorsConfig.java           # CORS 全开
 │   │   ├── HttpClientConfig.java     # HTTP 代理配置
 │   │   ├── BochaSearchConfig.java    # Bocha 搜索配置
@@ -236,7 +240,8 @@ D:\AI_Agent\
 │   ├── model/                        # DTO
 │   │   ├── ImageChatRequest.java
 │   │   ├── ImageChatResponse.java
-│   │   └── PromptTemplate.java
+│   │   ├── PromptTemplate.java
+│   │   └── SessionQueryDTO.java      # 会话列表查询参数（分页/排序/筛选）
 │   │
 │   ├── exception/                    # 自定义异常
 │   │   ├── PermissionDeniedException.java
@@ -446,10 +451,19 @@ CREATE TABLE cs_vector_store (
 |------|------|------|------|
 | GET | `/analytics/overview` | 总览统计卡片（会话数/意图分布/转人工率/平均轮次） | 无需 |
 | GET | `/analytics/intent-distribution` | 意图分布统计 | 无需 |
-| GET | `/analytics/sessions` | 会话列表（含分析摘要） | 无需 |
+| GET | `/analytics/sessions` | 会话列表（分页+排序+筛选，返回 `{content,total,page,size,totalPages}`） | 无需 |
 | GET | `/analytics/sessions/{id}` | 单会话详情（完整对话回放） | 无需 |
 | GET | `/analytics/export/csv` | 导出全部对话日志（CSV） | 无需 |
 | GET | `/analytics/export/csv/{id}` | 导出单个会话对话日志（CSV） | 无需 |
+
+> **前端分析仪表盘（v4.1 新增，v4.4 增强分页/排序/筛选）：** 前端 `/analytics` 页面（侧边栏入口），对接上述 6 个 API：
+> - 总览卡片：总会话数、转人工率、平均轮次、澄清次数、平均置信度
+> - 意图分布：CSS 柱状图，按意图类型统计数量
+> - 会话列表：**分页展示**（每页 15 条），**可排序**（轮次/置信度/澄清/创建时间），**可筛选**（意图类型/转人工状态/是否有澄清）
+> - 详情弹窗：点击"详情"查看完整对话回放（含意图标签/置信度/转人工/澄清标记）
+> - CSV 导出：全量导出 + 单会话导出（fetch blob 下载）
+>
+> **会话列表查询参数（v4.4 新增）：** `page`, `size`, `sortBy`（created_at/total_turns/avg_confidence/clarification_count）, `sortOrder`（asc/desc）, `intent`, `handoff`（Boolean）, `clarification`（Boolean）
 
 ### FAQ 管理（AdminController — `/admin/**`）— v4.0 新增
 
@@ -727,11 +741,15 @@ SSE 请求 → authHeaders() → { Authorization: Bearer <token> }
 
 | 组件 | 样式特征 |
 |------|----------|
-| 意图标签 | `.intent-tag` — 圆角标签，蓝色背景，显示意图名+置信度 |
+| 意图标签 | `.intent-tag` — 矩形标签，中性背景，显示意图名+置信度 |
+| 澄清选项 | `.clarification-card` — 结构化列表，标题栏+可点击选项行 |
+| 来源标注 | `.source-citations` — 简洁标签行，中性色调 |
+| 推荐问题 | `.suggested-questions` — 结构化列表，标题栏+可点击问题行 |
 | 转人工警告 | `.handoff-alert` — 红色背景脉冲动画，图标+文字 |
 | 澄清气泡 | `.bubble.is-clarification` — 黄色边框高亮 |
 | 推荐问题 | `.suggested-questions` — 消息气泡下方可点击问题列表 |
 | FAQ 管理页 | `AdminFAQView.vue` — 拖拽上传区域 + 文件列表 + 重载按钮 |
+| 对话分析仪表盘 | `AnalyticsView.vue` — 统计卡片 + 意图分布柱状图 + 会话列表 + 详情回放弹窗 + CSV导出 |
 
 ### 前端单例模式
 
@@ -893,6 +911,190 @@ Docker Compose
 
 ## 十三、版本变更记录
 
+### v5.0 (2026-04-27) — RAG + FAQ 知识检索增强（三路加载 + 出处标注）
+
+**目标：** 完善知识库检索体系，加载所有知识源（classpath knowledge + docs + 外部 FAQ），实现出处标注率 100%。
+
+**改造文件：**
+- `knowledge/KnowledgeBaseLoader.java` — 核心改造：
+  - `loadAll()` 从单路扩展为三路加载：classpath `knowledge/`、classpath `docs/`、外部 `data/faq/`
+  - 新增 `parseNewFaqDocument()` — 解析 `### Q{n}: question` 格式的 FAQ 文件（移动智能客服 FAQ）
+  - 新增 `parseRagDocument()` — 按 `##` 二级标题分块解析业务知识库文档（用于精准语义检索）
+  - 新增 `buildNewFaqDocument()` / `buildRagDocument()` — 构建带 section 元信息的 Document
+  - 新增 `loadExternalFaq()` — 从文件系统加载外部 FAQ 目录
+  - 新增 `isNonKnowledgeFile()` — 过滤非知识库文件（需求文档、故障记录、恋爱旧文档）
+  - Document metadata 新增 `section` 字段，记录一级分类/章节标题用于出处标注
+- `knowledge/KnowledgeSearchService.java` — FAQ 直匹配不再清除 source 字段，保留完整出处信息
+- `knowledge/CustomerServiceVectorStoreConfig.java` — 启动时先清空旧向量数据（DELETE），避免重复累积
+- `Agent/customer_service/CustomerServiceAgent.java` — nextStepPrompt 更新，要求所有回答均标注来源出处
+- `application.yml` — 新增 `cs.faq.data-dir: ./data/faq` 配置项
+- `prompts/customer-service.txt` — 增强出处标注规则（FAQ/知识库/未找到三种情况的处理规范）
+
+**知识源覆盖：**
+- `classpath:knowledge/faq/` — 5 个原 FAQ 文件（订单/退换货/配送/售后/支付）× ~5 条 = ~25 条
+- `classpath:knowledge/product/` — 3 个产品文档（手表/耳机/音箱）
+- `classpath:knowledge/policy/` — 2 个政策文档（隐私/售后承诺）
+- `classpath:docs/` — 2 个中国移动业务知识库（基础服务 + 专项服务与活动）
+- `data/faq/` — 2 个外部 FAQ 文件（基础业务篇 30 条 + 增值与活动篇 30 条）= 60 条
+- 总计约 90+ FAQ 条目 + 15+ 产品/政策/知识库章节文档
+
+**两级检索流程（增强后）：**
+1. Tier 1: FAQ 直匹配 — 遍历所有 FAQ 文档（含外部 FAQ），计算相似度，≥ 0.6 直接命中
+2. Tier 2: RAG 语义检索 — PgVector 语义搜索所有文档（含知识库章节），topK=3
+3. 所有结果保留 source 元信息，回答必须标注 [来源：文档名#段落/章节]
+
+### v4.5 (2026-04-24) — 多轮对话槽位填充模式 + 人工请求识别增强
+
+**根因分析：** 每次 HTTP 请求创建新 Agent 实例，LLM messagesList 清空，导致 LLM 看不到之前问过的澄清问题。短回答被误分为 CHITCHAT/OUT_OF_SCOPE。
+
+**核心改造：槽位填充模式**
+当 DialogPhase 处于 SLOT_FILLING/CLARIFYING 时，跳过完整意图识别，改用轻量级"槽位提取"模式。
+
+**新建文件：**
+- `intent/model/SlotExtractionResult.java` — 槽位提取结果模型（extracted Map + topicChange 标志）
+
+**改造文件：**
+- `dialog/model/DialogState.java` —
+  - 新增 `lastBotMessage` 字段（Agent 上次发送给用户的消息文本）
+  - 新增 `pendingSlots` 字段（待填充的槽位名称列表）
+  - 新增 `isSlotFillingOrClarifying()` 方法
+  - 新增 `updatePendingSlots(List<SlotDefinition>)` 方法
+  - 修复 `consecutiveOutOfScope` 计数器 bug（非 OUT_OF_SCOPE 意图时未重置为 0）
+- `intent/IntentConfig.java` —
+  - `refund_reason` 槽位从 ENUM 改为 STRING（接受任意自由文本退款原因）
+  - 澄清模板改为开放提问
+- `intent/IntentClassifier.java` — 四项改造：
+  - 新增 `HUMAN_REQUEST_KEYWORDS` 列表（人工/转人工/人工客服/真人/人工服务/客服），命中直接返回 REQUEST_HUMAN + 0.95 置信度
+  - 放宽订单号正则：新增 `PURE_ORDER_ID_PATTERN`（6-20 位纯字母数字无前缀也识别为订单号）
+  - 新增 `classify(text, slots, dialogState)` 重载：有对话上下文时使用 `buildClassificationPromptWithContext()`，告知 LLM 当前意图/上次提问/已收集信息，防止短回答被误分类
+  - 新增 `extractSlots()` 方法：轻量级槽位提取，Prompt 只含意图+槽位定义+上次提问+用户回答，LLM 返回 `{extracted:{}, is_topic_change:false}`
+- `Agent/customer_service/CustomerServiceAgent.java` — 核心改动：
+  - `step()` 新增槽位填充模式分支：当 `isSlotFillingOrClarifying()` 时跳过完整意图识别，调用 `extractSlots()` 提取槽位，支持话题切换检测
+  - 新增 `sendAnswerAndSaveContext()` 辅助方法：发送 answer 事件同时保存到 `lastBotMessage`
+  - 新增 `buildClarificationForMissing()` 方法：为缺失槽位构建追问消息
+  - 所有 `sendSseEvent("answer", ...)` 替换为 `sendAnswerAndSaveContext(...)`，确保每次回复都保存上下文
+  - 澄清阶段自动调用 `updatePendingSlots()` 记录待填充槽位
+  - `buildContextForResolution()` 增加 `lastBotMessage` 信息
+
+**多轮对话流程示例：**
+1. 用户："我想申请退款" → 意图识别为 ORDER_REFUND → 缺少 order_id 和 refund_reason → 追问 → 保存 lastBotMessage
+2. 用户："不喜欢" → 检测到 SLOT_FILLING 阶段 → extractSlots() → 提取 refund_reason="不喜欢" → 继续问 order_id
+3. 用户："ORD123456" → 检测到 SLOT_FILLING 阶段 → extractSlots() → 提取 order_id → 槽位完整 → 进入 think→act
+4. 用户："人工" → 关键词预筛命中 → 直接返回 REQUEST_HUMAN → 转人工
+
+### v4.4 (2026-04-24) — 对话分析分页、排序、筛选
+
+**后端改造：**
+- `pom.xml` — 新增 `mybatis-plus-jsqlparser` 依赖（分页插件支持）
+- `config/MybatisPlusConfig.java` — 新建，注册 `PaginationInnerInterceptor(DbType.POSTGRE_SQL)`
+- `model/SessionQueryDTO.java` — 新建，查询参数载体（page/size/sortBy/sortOrder/intent/handoff/clarification）
+- `mapper/DialogAnalyticsMapper.java` — 新增 `selectSessionPage` 方法，单条 SQL 完成 JOIN 查询 + 动态筛选 + 分页，解决原有 N+1 查询问题
+- `service/AnalyticsService.java` — `getSessionList` 改为接收 `SessionQueryDTO`，排序字段白名单校验防注入，返回 `{content,total,page,size,totalPages}` 分页结构
+- `controller/AnalyticsController.java` — `getSessionList` 接受查询参数
+
+**数据库迁移（已执行）：**
+- `docs/schema-v2-phase5.sql` — 3 个索引（conversations.created_at 降序、dialog_analytics 转人工部分索引、澄清部分索引）+ 历史数据回填（10 条）
+
+**前端改造：**
+- `api/analytics.js` — `getSessionList(params)` 接受查询参数对象
+- `components/AnalyticsView.vue` — 新增：
+  - **筛选栏**：意图类型下拉框 + 转人工按钮组（全部/是/否）+ 澄清按钮组（全部/是）
+  - **可排序表头**：轮次、置信度、澄清、创建时间 4 列可点击切换升序/降序，显示 ▲/▼ 图标
+  - **分页组件**：首页/上一页/页码窗口/下一页/末页 + "共 N 条" 信息
+  - 字段名适配后端 SQL 返回的 snake_case（conversation_id, total_turns, avg_confidence 等）
+
+**性能优化：**
+- 原 `getSessionList` 存在 N+1 查询（先全查 conversations，再逐个查 messages 做内存聚合）
+- 新方案利用 `dialog_analytics` 预聚合表，单条 SQL JOIN 查询，MyBatis-Plus 自动加分页 LIMIT/OFFSET
+
+### v4.3 (2026-04-24) — 前端 UI 设计系统化重构（参考 ui-ux-pro-max + frontend-design Skills）
+
+**设计方向：Industrial** — 干净、结构化、功能导向，传达"可靠、专业、高效"的客服品牌感。
+
+**核心设计原则应用：**
+- 去除装饰性动画（脉冲环、浮动光球）— 只保留传达状态变化的动画
+- 建立强视觉层次（大标题、小描述，不等权重卡片堆砌）
+- 非对称/左对齐布局，避免所有内容居中的 SaaS 套路
+- 色彩系统化（`--accent-primary` 为主色，辅助色有明确语义）
+- 有意义的动画（单次入场动画，交错节奏，无持续循环装饰）
+
+**改造文件：**
+- `WelcomeScreen.vue` — 完全重写：
+  - 去除装饰性脉冲光环动画
+  - Hero 区域改为排版层次驱动（大标题 + 主色强调词 + 一行描述）
+  - 能力展示改为结构化列表（左色点 + 标签 + 描述），非等权胶囊卡片
+  - 快捷按钮改为右箭头引导的 CTA 风格，hover 时箭头平移
+  - 分隔线分隔能力区和操作区
+- `LoginView.vue` — 重写品牌展示侧：
+  - 去除 3 个装饰性浮动光球（orb-1/orb-2/orb-3 + float 动画）
+  - 背景改为结构化网格线 + 单一低饱和渐变（非装饰性）
+  - 品牌展示改为排版层次（大标题 + 副标题 + 分隔线 + 功能列表行）
+  - 功能列表改为水平排版（标签 — 描述），非彩色圆点 bullet points
+  - 移除冗余 CSS（.feature-dot.love/.manus/.multi/.cs/.kb/.analytics）
+- `ChatMessage.vue` — 视觉一致性优化：
+  - 意图标签：圆角改为矩形，蓝色改为中性背景 + 语义边框
+  - 澄清卡片：改为结构化列表风格（标题栏 + 选项行 + 分隔线），非黄色背景卡片
+  - 来源标注：改为中性色调（--text-secondary + --bg-sidebar），去蓝绿色
+  - 推荐问题：改为结构化列表（标题栏 + 问题行 + 分隔线），非松散按钮组
+
+**ui-ux-pro-max Skill 规则应用：**
+- ✅ `style-match` — Industrial 风格匹配客服场景
+- ✅ `consistency` — 统一圆角（矩形/微圆角）、边框（--border-secondary）、背景（--bg-sidebar）
+- ✅ `no-emoji-icons` — 全部使用 SVG 图标
+- ✅ `state-clarity` — hover 状态使用一致的 accent-primary 高亮
+- ✅ `elevation-consistent` — 统一边框层级，不使用随机阴影
+- ✅ `motion-meaning` — 入场动画表达先后关系，非装饰
+- ✅ `duration-timing` — 动画 0.15s ease 微交互，0.4s 入场
+
+**frontend-design Skill 原则应用：**
+- ✅ 单一视觉方向 — Industrial，全局一致
+- ✅ 排版层次 — 标题 1.75rem/800 vs 描述 0.9375rem/400，强对比
+- ✅ 功能性色彩 — 单一主色 `--accent-primary`，非彩虹色板
+- ✅ 去除反模式 — 浮动光球、脉冲环、等权卡片堆、装饰性模糊
+
+### v4.2 (2026-04-24) — 登录认证修复 + 数据库迁移 + 前端页面完善
+
+**数据库迁移（已执行）：**
+- `docs/schema-v2-phase3.sql` — conversation_messages 扩展 6 字段 + dialog_analytics 新建表 + 索引
+- `docs/schema-v2-phase4.sql` — users 表新增 role 字段（VARCHAR(20) DEFAULT 'user'）+ cs_vector_store 索引
+
+**根因：** v4.0 代码中 User 实体新增 `role` 字段，但数据库迁移脚本未执行。登录后 JwtAuthenticationFilter 调用 selectById 查询时 SQL 包含 `role` 列导致异常 → SecurityContext 未设置 → /auth/me 返回 401。
+
+**改造文件：**
+- `service/UserService.java` — login() 添加 INFO/WARN 日志（用户不存在/密码不匹配/登录成功），输出 passwordHash 和密码长度辅助排查
+- `config/JwtAuthenticationFilter.java` — doFilterInternal 添加 DEBUG 日志追踪 URI/token/用户加载/SecurityContext 设置
+- `controller/AuthController.java` — 新增 `@Slf4j`，`/auth/me` 增加 SecurityContext 直接获取回退机制（不再完全依赖 @AuthenticationPrincipal）
+- `AI_Agent_Fronted/src/api/auth.js` — login() 和 fetchUser() 添加 console.log/warn，区分登录请求失败和旧 token 验证失败
+- `application.yml` — 新增 logging.level 配置（UserService=INFO, JwtAuthenticationFilter=DEBUG, AuthController=DEBUG）
+
+**前端页面完善（阶段四补充）：**
+- `LoginView.vue` — 品牌展示区更新：恋爱大师/超级智能体 → 智能客服/知识库检索/对话分析；版本号更新 v4.2
+- `ChatView.vue` — 客服模式 placeholder 改为"请描述您的问题，例如'查询订单'或'退款政策'..."
+- `WelcomeScreen.vue` — 重构：动态渐变图标+光环动画、能力卡片（意图识别/知识库检索/智能澄清）、发送图标+快捷按钮
+- `ChatMessage.vue` — 新增澄清选项卡片（`clarificationOptions` prop，可点击按钮）、来源标注区域（`sources` prop，带文档图标）
+- `ChatView.vue` — 传递 `clarificationOptions` 和 `sources` props 到 ChatMessage
+
+### v4.1 (2026-04-24) — 前端对话分析仪表盘 + 日志导出
+
+**新建文件：**
+- `AI_Agent_Fronted/src/api/analytics.js` — 分析统计 API 模块（6 个接口：总览/意图分布/会话列表/详情/全量CSV导出/单会话CSV导出）
+- `AI_Agent_Fronted/src/components/AnalyticsView.vue` — 对话分析仪表盘页面
+
+**改造文件：**
+- `AI_Agent_Fronted/src/router/index.js` — 新增 `/analytics` 路由
+- `AI_Agent_Fronted/src/components/Sidebar.vue` — 新增「对话分析」入口按钮，将 `admin-faq-btn` 重命名为通用 `sidebar-action-btn`
+
+**AnalyticsView 功能模块：**
+- **总览统计卡片：** 5 张卡片（总会话数/转人工率/平均轮次/澄清次数/平均置信度），带 SVG 图标和主题色背景
+- **意图分布柱状图：** CSS 纯样式横向柱状图，10 种颜色循环，动态宽度计算
+- **会话列表表格：** 显示标题/轮次/主要意图/置信度/澄清/转人工/创建时间 + 操作按钮
+- **会话详情弹窗：** 完整对话回放，区分用户/AI 消息样式，显示意图标签/置信度/转人工/澄清标记
+- **CSV 导出：** 全量导出 + 单会话导出，通过 fetch blob 方式下载
+- **暗色/亮色主题：** 全部使用 CSS 变量，自动适配主题切换
+- **响应式布局：** 适配移动端
+
+**阶段四完成进度：** 4.4 会话分析仪表盘 ✅ | 4.5 日志导出页面 ✅ | 阶段四全部完成
+
 ### v4.0 (2026-04-23) — 两级知识检索 + 管理员 FAQ 管理
 
 **新建文件：**
@@ -944,7 +1146,7 @@ Docker Compose
 - 删除文件 + 重载知识库按钮
 - 上传后自动清除知识库缓存，下次搜索重新加载
 
-**待执行 SQL：** `docs/schema-v2-phase4.sql`（ALTER TABLE users ADD role + CREATE TABLE cs_vector_store）
+**已执行 SQL (2026-04-24)：** `docs/schema-v2-phase4.sql`（ALTER TABLE users ADD role + CREATE TABLE cs_vector_store）— 已确认 role 字段存在
 
 **新建文件：**
 - `entity/DialogAnalytics.java` — dialog_analytics 表实体（会话聚合分析）
@@ -978,7 +1180,7 @@ Docker Compose
 2. 保存用户消息 + AI 回复（含意图/槽位/置信度/转人工/澄清标记）
 3. 更新 dialog_analytics 聚合表
 
-**待执行 SQL：** `docs/schema-v2-phase3.sql`（扩展 conversation_messages 表 + 新建 dialog_analytics 表）
+**已执行 SQL (2026-04-24)：** `docs/schema-v2-phase3.sql`（扩展 conversation_messages 表 + 新建 dialog_analytics 表）— 已确认全部字段和索引存在
 
 ### v2.2 (2026-04-22) — 知识库数据外部化
 

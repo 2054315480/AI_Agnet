@@ -17,8 +17,8 @@ import org.springframework.stereotype.Component;
 public class QueryReweiter {
     private  final QueryTransformer queryTransformer;
 
-    public QueryReweiter(ChatModel dashscopeChatModel) {
-        ChatClient.Builder builder =ChatClient.builder(dashscopeChatModel);
+    public QueryReweiter(ChatModel openAiChatModel) {
+        ChatClient.Builder builder =ChatClient.builder(openAiChatModel);
         //创建查询重写器
         queryTransformer = RewriteQueryTransformer.builder()
                 .chatClientBuilder(builder)

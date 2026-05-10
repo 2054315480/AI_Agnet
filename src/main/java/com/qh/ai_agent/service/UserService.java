@@ -34,11 +34,15 @@ public class UserService {
     public User login(String username, String password) {
         User user = userMapper.findByUsername(username);
         if (user == null) {
+            log.warn("登录失败: 用户不存在, username={}", username);
             throw new IllegalArgumentException("用户名或密码错误");
         }
+        log.info("登录尝试: username={}, passwordHash={}", username, user.getPasswordHash());
         if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+            log.warn("登录失败: 密码不匹配, username={}, 输入密码长度={}", username, password.length());
             throw new IllegalArgumentException("用户名或密码错误");
         }
+        log.info("登录成功: username={}", username);
         return user;
     }
 

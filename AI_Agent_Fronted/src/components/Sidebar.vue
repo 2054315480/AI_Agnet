@@ -82,7 +82,21 @@
     <!-- Bottom -->
     <div class="sidebar-bottom">
       <ThemeToggle v-if="open" />
-      <button v-if="open" class="admin-faq-btn" @click="goToAdminFaq">
+      <button v-if="open" class="sidebar-action-btn" @click="$emit('openBatchTest')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        <span>批量测试</span>
+      </button>
+      <button v-if="open" class="sidebar-action-btn" @click="goToAnalytics">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10"/>
+          <line x1="12" y1="20" x2="12" y2="4"/>
+          <line x1="6" y1="20" x2="6" y2="14"/>
+        </svg>
+        <span>对话分析</span>
+      </button>
+      <button v-if="open" class="sidebar-action-btn" @click="goToAdminFaq">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
           <polyline points="14 2 14 8 20 8"/>
@@ -111,7 +125,7 @@ defineProps({
   open: { type: Boolean, default: true }
 })
 
-defineEmits(['toggle'])
+defineEmits(['toggle', 'openBatchTest'])
 
 const {
   activeAgent,
@@ -137,12 +151,18 @@ function goToAdminFaq() {
   router.push('/admin/faq')
 }
 
+function goToAnalytics() {
+  router.push('/analytics')
+}
+
 function openConversation(id) {
   setActiveConversation(id)
+  router.push('/')
 }
 
 function handleNewChat() {
   createConversation(activeAgent.value)
+  router.push('/')
 }
 
 function deleteConv(id) {
@@ -380,7 +400,7 @@ function handleLogout() {
   margin-top: 8px;
 }
 
-.admin-faq-btn {
+.sidebar-action-btn {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -393,12 +413,12 @@ function handleLogout() {
   margin-bottom: 4px;
 }
 
-.admin-faq-btn:hover {
+.sidebar-action-btn:hover {
   color: var(--accent-primary);
   background: var(--bg-hover);
 }
 
-.admin-faq-btn svg {
+.sidebar-action-btn svg {
   flex-shrink: 0;
 }
 

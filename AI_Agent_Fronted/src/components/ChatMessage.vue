@@ -44,6 +44,33 @@
         <span>转接人工客服中...</span>
       </div>
 
+      <!-- 澄清选项卡片 -->
+      <div v-if="isClarification && !isUser && clarificationOptions.length > 0 && !loading" class="clarification-card">
+        <div class="clarification-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <span>请选择您想了解的内容：</span>
+        </div>
+        <button
+          v-for="(opt, idx) in clarificationOptions"
+          :key="idx"
+          class="clarification-option"
+          @click="$emit('ask-question', opt)"
+        >{{ opt }}</button>
+      </div>
+
+      <!-- 来源标注 -->
+      <div v-if="!isUser && sources.length > 0 && !loading" class="source-citations">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        <span v-for="(s, idx) in sources" :key="idx" class="source-tag">{{ s }}</span>
+      </div>
+
       <!-- Thinking process block (DeepSeek style) -->
       <div v-if="hasThinkingSteps" class="thinking-block" :class="{ expanded: isThinkingExpanded }">
         <button class="thinking-header" @click="toggleThinking">
@@ -150,7 +177,9 @@ const props = defineProps({
   intentInfo: { type: Object, default: null },
   isClarification: { type: Boolean, default: false },
   isHandoff: { type: Boolean, default: false },
-  suggestedQuestions: { type: Array, default: () => [] }
+  suggestedQuestions: { type: Array, default: () => [] },
+  clarificationOptions: { type: Array, default: () => [] },
+  sources: { type: Array, default: () => [] }
 })
 
 defineEmits(['ask-question'])
@@ -342,17 +371,17 @@ const renderedContent = computed(() => {
   align-items: center;
   gap: 6px;
   padding: 3px 10px;
-  border-radius: 12px;
+  border-radius: 4px;
   font-size: 0.7rem;
   font-weight: 600;
   margin-bottom: 4px;
-  background: rgba(31, 111, 235, 0.1);
-  color: var(--accent-primary);
-  border: 1px solid rgba(31, 111, 235, 0.2);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-secondary);
 }
 
 .intent-tag.intent-handoff {
-  background: rgba(248, 81, 73, 0.1);
+  background: var(--danger-bg);
   color: var(--danger);
   border-color: rgba(248, 81, 73, 0.2);
 }
@@ -387,6 +416,85 @@ const renderedContent = computed(() => {
 .bubble.is-clarification {
   border-color: rgba(255, 193, 7, 0.3);
   background: rgba(255, 193, 7, 0.05);
+}
+
+/* 澄清选项卡片 — 结构化列表风格 */
+.clarification-card {
+  margin-bottom: 6px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-secondary);
+  overflow: hidden;
+}
+
+.clarification-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.clarification-title svg {
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.clarification-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  border: none;
+  border-bottom: 1px solid var(--border-secondary);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.clarification-option:last-child {
+  border-bottom: none;
+}
+
+.clarification-option:hover {
+  background: rgba(31, 111, 235, 0.04);
+  color: var(--accent-primary);
+}
+
+/* 来源标注 — 简洁标签行 */
+.source-citations {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-sidebar);
+}
+
+.source-citations > svg {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.source-tag {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  padding: 2px 8px;
+  border-radius: 3px;
+  white-space: nowrap;
 }
 
 /* ===== Thinking process block (DeepSeek style) ===== */
@@ -749,36 +857,43 @@ const renderedContent = computed(() => {
   }
 }
 
-/* ===== Suggested questions ===== */
+/* ===== Suggested questions — 结构化列表 ===== */
 .suggested-questions {
   margin-top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
 
 .suggested-label {
   font-size: 0.75rem;
+  font-weight: 600;
   color: var(--text-tertiary);
-  margin-bottom: 2px;
+  padding: 8px 12px;
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border-secondary);
 }
 
 .suggested-item {
   text-align: left;
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-sidebar);
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-bottom: 1px solid var(--border-secondary);
+  background: transparent;
   color: var(--text-secondary);
   font-size: 0.8125rem;
   cursor: pointer;
-  transition: var(--transition);
+  transition: background 0.15s ease, color 0.15s ease;
   line-height: 1.5;
+}
+
+.suggested-item:last-child {
+  border-bottom: none;
 }
 
 .suggested-item:hover {
   color: var(--accent-primary);
-  border-color: var(--accent-primary);
-  background: rgba(31, 111, 235, 0.05);
+  background: rgba(31, 111, 235, 0.04);
 }
 </style>

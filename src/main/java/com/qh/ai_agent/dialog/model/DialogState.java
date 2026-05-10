@@ -9,6 +9,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * 对话状态：跟踪当前会话的意图、槽位、阶段等信息
@@ -48,6 +49,13 @@ public class DialogState {
     /** 上一次澄清的槽位名称 */
     private String lastClarificationSlot;
 
+    /** 上一次 Agent 发送给用户的消息文本（用于多轮上下文） */
+    private String lastBotMessage;
+
+    /** 待填充的槽位名称列表 */
+    @Builder.Default
+    private List<String> pendingSlots = new ArrayList<>();
+
     /** 连续无法识别的轮数 */
     @Builder.Default
     private int consecutiveOutOfScope = 0;
@@ -77,12 +85,16 @@ public class DialogState {
             this.handoffTriggered = true;
         } else if (result.getIntent() == CustomerIntent.OUT_OF_SCOPE) {
             this.consecutiveOutOfScope++;
-        } else if (result.isNeedsClarification()) {
-            this.dialogPhase = DialogPhase.CLARIFYING;
-        } else if (isSlotComplete(requiredSlots)) {
-            this.dialogPhase = DialogPhase.RETRIEVING;
         } else {
-            this.dialogPhase = DialogPhase.SLOT_FILLING;
+            // 非 OUT_OF_SCOPE 意图时重置计数器
+            this.consecutiveOutOfScope = 0;
+            if (result.isNeedsClarification()) {
+                this.dialogPhase = DialogPhase.CLARIFYING;
+            } else if (isSlotComplete(requiredSlots)) {
+                this.dialogPhase = DialogPhase.RETRIEVING;
+            } else {
+                this.dialogPhase = DialogPhase.SLOT_FILLING;
+            }
         }
 
         this.turnCount++;
@@ -111,5 +123,26 @@ public class DialogState {
                         || filledSlots.get(sd.getSlotName()) == null
                         || filledSlots.get(sd.getSlotName()).isBlank())
                 .toList();
+    }
+
+    /** 是否处于槽位填充或澄清阶段 */
+    public boolean isSlotFillingOrClarifying() {
+        return this.dialogPhase == DialogPhase.SLOT_FILLING
+                || this.dialogPhase == DialogPhase.CLARIFYING;
+    }
+
+    /** 根据 filledSlots 更新待填充槽位列表 */
+    public void updatePendingSlots(List<SlotDefinition> allSlotDefs) {
+        if (allSlotDefs == null) {
+            this.pendingSlots = new ArrayList<>();
+            return;
+        }
+        this.pendingSlots = allSlotDefs.stream()
+                .filter(SlotDefinition::isRequired)
+                .filter(sd -> !filledSlots.containsKey(sd.getSlotName())
+                        || filledSlots.get(sd.getSlotName()) == null
+                        || filledSlots.get(sd.getSlotName()).isBlank())
+                .map(SlotDefinition::getSlotName)
+                .collect(Collectors.toList());
     }
 }

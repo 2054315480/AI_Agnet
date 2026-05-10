@@ -1,26 +1,37 @@
-# 构建产物
+# Maven
 target/
-AI_Agent_Fronted/node_modules/
-AI_Agent_Fronted/dist/
-image-search-mcp-server/target/
+*.jar
+*.war
 
 # IDE
 .idea/
-*.iml
 .vscode/
+*.iml
 
-# 本地运行时文件
-chat-memory/
-tmp/
-META-INF/
-nul
+# Node
+node_modules/
+dist/
 
 # Git
 .git/
+.gitignore
 
-# 不需要的文档
+# Docs
 *.md
-!src/main/resources/docs/*.md
+!README.md
 
-# 本地配置（生产环境用环境变量）
+# Environment
 .env
+.env.local
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+tmp/
+*.tmp
+~$*

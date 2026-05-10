@@ -1,35 +1,32 @@
-# ========== Stage 1: Build image-search-mcp-server ==========
-FROM maven:3.9-amazoncorretto-21 AS mcp-builder
-WORKDIR /build
-COPY image-search-mcp-server/pom.xml .
-COPY image-search-mcp-server/src ./src
-RUN mvn clean package -DskipTests -q
+# ============ 后端多阶段构建 ============
 
-# ========== Stage 2: Build main project ==========
-FROM maven:3.9-amazoncorretto-21 AS app-builder
+# 阶段 1: Maven 构建
+FROM maven:3.9-eclipse-temurin-21-alpine AS builder
 WORKDIR /build
+
 COPY pom.xml .
-# 先下载依赖（利用 Docker 层缓存）
-RUN mvn dependency:go-offline -q
-COPY src ./src
-# Windows 本地用 npx.cmd，Linux 容器改成 npx
-RUN sed -i 's/npx\.cmd/npx/g' src/main/resources/MCP-servers.json
-RUN mvn clean package -DskipTests -q
+# 先下载依赖（利用 Docker 缓存）
+RUN mvn dependency:go-offline -q || true
+COPY src src/
 
-# ========== Stage 3: Runtime ==========
+RUN mvn clean package -Dmaven.test.skip=true -q
+
+# 阶段 2: 运行时
 FROM eclipse-temurin:21-jre-alpine
-RUN apk add --no-cache nodejs npm
 WORKDIR /app
 
-# 复制主应用 JAR
-COPY --from=app-builder /build/target/AI_Agent-0.0.1-SNAPSHOT.jar app.jar
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# 复制 MCP server JAR（保持 MCP-servers.json 中定义的相对路径）
-COPY --from=mcp-builder /build/target/image-search-mcp-server-0.0.1-SNAPSHOT.jar \
-     ./image-search-mcp-server/target/image-search-mcp-server-0.0.1-SNAPSHOT.jar
+COPY --from=builder /build/target/*.jar app.jar
 
-# 创建持久化目录
-RUN mkdir -p /app/chat-memory /app/tmp/file /app/tmp/Download /app/tmp/PDF
+# 复制知识库数据和 FAQ
+COPY data/data/knowledge_base/ ./data/data/knowledge_base/
+COPY data/faq/ ./data/faq/
+COPY src/main/resources/prompts/ ./prompts/
+
+RUN chown -R appuser:appgroup /app
+USER appuser
 
 EXPOSE 8123
-ENTRYPOINT ["java", "-jar", "app.jar", "--spring.profiles.active=prod"]
+
+ENTRYPOINT ["java", "-jar", "app.jar", "--spring.profiles.active=local,docker"]

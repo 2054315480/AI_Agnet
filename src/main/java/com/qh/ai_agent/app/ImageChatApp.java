@@ -1,11 +1,11 @@
 package com.qh.ai_agent.app;
 
-import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.qh.ai_agent.service.PromptTemplateService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.content.Media;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.MimeType;
@@ -21,11 +21,11 @@ public class ImageChatApp {
     private final String systemPrompt;
     private final String visionModel;
 
-    public ImageChatApp(ChatModel chatModel,
+    public ImageChatApp(ChatModel openAiChatModel,
                         PromptTemplateService promptTemplateService,
-                        @Value("${spring.ai.dashscope.image.options.model:qwen-vl-plus}") String visionModel) {
-        log.info("初始化 ImageChatApp，ChatModel 类型: {}, 视觉模型: {}", chatModel.getClass().getName(), visionModel);
-        this.chatClient = ChatClient.builder(chatModel).build();
+                        @Value("${spring.ai.openai.image.options.model:aliyun/glm-5}") String visionModel) {
+        log.info("初始化 ImageChatApp，ChatModel 类型: {}, 视觉模型: {}", openAiChatModel.getClass().getName(), visionModel);
+        this.chatClient = ChatClient.builder(openAiChatModel).build();
         this.visionModel = visionModel;
         this.systemPrompt = promptTemplateService.loadTemplate("image-analyst")
                 .renderWithDefaults(null);
@@ -89,10 +89,8 @@ public class ImageChatApp {
                     .build();
 
             String response = chatClient.prompt()
-                .options(DashScopeChatOptions.builder()
-                    .withModel(visionModel)
-                    .withMultiModel(true)
-                    .withEnableThinking(false)
+                .options(OpenAiChatOptions.builder()
+                    .model(visionModel)
                     .build())
                 .system(systemPrompt)
                 .user(u -> u

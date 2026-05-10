@@ -70,8 +70,8 @@ public class ConversationService {
 
     /** 保存消息（含客服分析字段） */
     public void addMessage(String conversationId, String role, String content,
-                           String intent, String slots, Double confidence,
-                           boolean isHandoff, boolean isClarification, String sources) {
+                           String intent, java.util.Map<String, String> slots, Double confidence,
+                           boolean isHandoff, boolean isClarification, java.util.Map<String, Object> sources) {
         ConversationMessage msg = new ConversationMessage();
         msg.setConversationId(conversationId);
         msg.setRole(role);

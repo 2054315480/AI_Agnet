@@ -10,6 +10,7 @@ import com.qh.ai_agent.intent.IntentConfig;
 import com.qh.ai_agent.intent.model.CustomerIntent;
 import com.qh.ai_agent.intent.model.IntentResult;
 import com.qh.ai_agent.intent.model.SlotDefinition;
+import com.qh.ai_agent.intent.model.SlotExtractionResult;
 import com.qh.ai_agent.service.PromptTemplateService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -42,6 +43,8 @@ public class CustomerServiceAgent extends ToolCallAgent {
 
     private String sessionId;
     private DialogState dialogState;
+    /** 当前用户原始问题（用于注入搜索指令） */
+    private String currentUserQuery;
 
     private static final double MIN_CONFIDENCE = 0.5;
     /** 转人工阈值：连续超范围轮数 */
@@ -77,7 +80,19 @@ public class CustomerServiceAgent extends ToolCallAgent {
         String systemPrompt = promptTemplateService.loadTemplate("customer-service")
                 .renderWithDefaults(Map.of());
         this.setSystemPrompt(systemPrompt);
-        this.setNextStepPrompt("请根据用户的问题，选择合适的工具来查询信息或处理请求。如果工具返回的 matchType 是 rag_search，回答时必须标注来源出处；如果是 faq_direct，直接回答无需标注来源。如果已充分回答，直接给出最终答案。");
+        this.setNextStepPrompt("请根据用户的问题，选择合适的工具来查询信息或处理请求。" +
+                "核心原则：知识库最优先！任何用户问题都必须先用 searchKnowledgeBase 搜索知识库。" +
+                "铁律：工具返回的 results[].content 字段内容必须逐字原样输出给用户，一字不改！" +
+                "你只是搬运工，不是编辑——禁止对知识库内容做任何改写、总结、归纳、重组、合并、美化。" +
+                "调用 searchKnowledgeBase 时，必须使用用户的完整原始问题作为查询词，禁止简化为关键词！" +
+                "所有回答必须标注来源出处，格式为 [来源：文档名] 和 [条目编号:kbId值]。" +
+                "如果工具返回了 matchType=faq_direct，说明是 FAQ 精确匹配，直接引用答案并标注来源。" +
+                "如果工具返回了 matchType=hybrid_search，说明是知识库语义检索，直接引用答案并标注来源。" +
+                "重要：知识库内容中如出现 {{xxx}} 格式的模板占位符，请原样输出，不要解释为数据缺失或无法获取。" +
+                "回答流程：1)先输出知识库原文 → 2)标注来源 → 3)如确需用户补充信息（如订单号），在最后轻声追问。" +
+                "严禁在未搜索知识库的情况下，直接向用户索取订单号、产品名等信息！" +
+                "如果知识库未找到相关内容，如实告知用户并建议转人工。" +
+                "如果已充分回答，直接给出最终答案。");
         this.setMaxStep(10);
     }
 
@@ -88,9 +103,11 @@ public class CustomerServiceAgent extends ToolCallAgent {
             if (lastUserInput == null || lastUserInput.isBlank()) {
                 return "无用户输入";
             }
+            this.currentUserQuery = lastUserInput;
 
             // 后续轮次直接走 think→act（意图识别仅在首轮执行）
             if (getCurrentStep() > 1) {
+                injectSearchQueryHint();
                 boolean shouldAct = think();
                 if (!shouldAct) {
                     setState(AgentState.FINISHED);
@@ -99,58 +116,116 @@ public class CustomerServiceAgent extends ToolCallAgent {
                 return actAndExtractSuggestions();
             }
 
+            // === 槽位填充模式：当处于 SLOT_FILLING / CLARIFYING 阶段时，跳过完整意图识别 ===
+            if (dialogState != null && dialogState.isSlotFillingOrClarifying()
+                    && dialogState.getCurrentIntent() != null) {
+                log.info("[SlotFilling] 进入槽位填充模式，当前意图={}, 阶段={}",
+                        dialogState.getCurrentIntent(), dialogState.getDialogPhase());
+
+                List<SlotDefinition> slotDefs = intentConfig.getSlotDefinitions(
+                        dialogState.getCurrentIntent().name());
+
+                // 使用轻量级槽位提取
+                SlotExtractionResult extractionResult = intentClassifier.extractSlots(
+                        lastUserInput,
+                        dialogState.getLastBotMessage(),
+                        dialogState.getCurrentIntent(),
+                        dialogState.getFilledSlots(),
+                        dialogState.getPendingSlots()
+                );
+
+                if (extractionResult.isTopicChange()) {
+                    // 用户切换话题，跳出槽位填充，走正常意图识别
+                    log.info("[SlotFilling] 检测到话题切换，进入正常意图识别");
+                    dialogState.setDialogPhase(DialogPhase.GREETING);
+                    dialogStateManager.updateState(sessionId, dialogState);
+                    // 继续往下走正常意图识别流程
+                } else if (extractionResult.hasExtracted()) {
+                    // 合并提取到的槽位
+                    dialogState.getFilledSlots().putAll(extractionResult.getExtracted());
+                    dialogState.updatePendingSlots(slotDefs);
+                    dialogState.setTurnCount(dialogState.getTurnCount() + 1);
+                    dialogStateManager.updateState(sessionId, dialogState);
+
+                    log.info("[SlotFilling] 提取到槽位: {}, 剩余待填充: {}",
+                            extractionResult.getExtracted(), dialogState.getPendingSlots());
+
+                    List<SlotDefinition> missing = dialogState.getMissingSlots(slotDefs);
+                    if (missing.isEmpty()) {
+                        // 所有槽位已填满 → 进入 think→act
+                        dialogState.setDialogPhase(DialogPhase.RETRIEVING);
+                        dialogStateManager.updateState(sessionId, dialogState);
+                        sendSseEvent("intent", formatIntentEvent(IntentResult.builder()
+                                .intent(dialogState.getCurrentIntent())
+                                .confidence(dialogState.getConfidenceScore())
+                                .slots(dialogState.getFilledSlots())
+                                .build()));
+                        injectSearchQueryHint();
+                        boolean shouldAct = think();
+                        if (!shouldAct) {
+                            setState(AgentState.FINISHED);
+                            return "思考完成 - 无需行动";
+                        }
+                        return actAndExtractSuggestions();
+                    } else {
+                        // 还有缺失槽位 → 继续追问
+                        dialogState.setDialogPhase(DialogPhase.SLOT_FILLING);
+                        dialogStateManager.updateState(sessionId, dialogState);
+                        String clarification = buildClarificationForMissing(missing);
+                        sendAnswerAndSaveContext(clarification);
+                        setState(AgentState.FINISHED);
+                        return "槽位填充 - 继续追问：" + clarification;
+                    }
+                } else {
+                    // 未提取到有效槽位，继续追问
+                    dialogState.setTurnCount(dialogState.getTurnCount() + 1);
+                    dialogStateManager.updateState(sessionId, dialogState);
+                    String clarification = buildClarificationForMissing(
+                            dialogState.getMissingSlots(slotDefs));
+                    sendAnswerAndSaveContext(clarification);
+                    setState(AgentState.FINISHED);
+                    return "槽位填充 - 未提取到信息，重新追问";
+                }
+            }
+
             // === 阶段二增强：指代消解 + 上下文补全 ===
             String resolvedInput = resolveReferences(lastUserInput);
 
-            // === 意图识别 + 槽位提取 ===
+            // === 意图识别 + 槽位提取（传入对话状态） ===
             IntentResult intentResult = intentClassifier.classify(
                     resolvedInput,
-                    dialogState != null ? dialogState.getFilledSlots() : null
+                    dialogState != null ? dialogState.getFilledSlots() : null,
+                    dialogState
             );
 
             // 更新对话状态
             dialogState = dialogStateManager.updateFromIntentResult(sessionId, intentResult);
             sendSseEvent("intent", formatIntentEvent(intentResult));
 
-            // === 拒识与转人工检查 ===
-            if (shouldHandoff(intentResult)) {
-                String reason = buildHandoffReason(intentResult);
-                sendSseEvent("handoff", reason);
-                sendSseEvent("answer", "很抱歉，" + reason + "\n\n正在为您转接人工客服，请稍候...\n\n您也可以先浏览我们的常见问题。");
-                setState(AgentState.FINISHED);
-                return "转人工处理：" + reason;
-            }
-
-            // === 超范围但未达转人工阈值 ===
-            if (intentResult.getIntent() == CustomerIntent.OUT_OF_SCOPE) {
-                String outOfScopeReply = "抱歉，这个问题超出了我的服务范围。我可以帮您处理订单查询、产品咨询、退款退货、售后保修等问题。\n\n请问有以上相关的问题需要帮助吗？如需其他帮助，可以说「转人工」。";
-                sendSseEvent("answer", outOfScopeReply);
-                setState(AgentState.FINISHED);
-                return "超范围回复";
-            }
-
-            // === 增强澄清 ===
-            if (intentResult.isNeedsClarification() || needsClarification(intentResult)) {
-                String clarification = buildClarification(intentResult);
-                dialogState.setDialogPhase(DialogPhase.CLARIFYING);
+            // === 仅用户明确要求人工时立即转接，不搜索知识库 ===
+            if (intentResult.getIntent() == CustomerIntent.REQUEST_HUMAN) {
+                dialogState.setDialogPhase(DialogPhase.HANDOFF);
+                dialogState.setHandoffTriggered(true);
                 dialogStateManager.updateState(sessionId, dialogState);
-                sendSseEvent("clarification", clarification);
-                sendSseEvent("answer", clarification);
+                sendSseEvent("handoff", "用户要求转人工");
+                sendAnswerAndSaveContext("正在为您转接人工客服，请稍候...");
                 setState(AgentState.FINISHED);
-                return "澄清问题：" + clarification;
+                return "用户明确要求转人工";
             }
 
-            // === 闲聊 ===
+            // === 闲聊直接回复 ===
             if (intentResult.getIntent() == CustomerIntent.CHITCHAT) {
-                sendSseEvent("answer", "您好！我是智能客服，很高兴为您服务。请问有什么可以帮您的？您可以问我订单、产品、退换货、保修等相关问题。");
+                sendAnswerAndSaveContext("您好！我是智能客服，很高兴为您服务。请问有什么可以帮您的？您可以问我订单、产品、退换货、保修等相关问题。");
                 setState(AgentState.FINISHED);
                 return "寒暄回复";
             }
 
-            // === 正常 think → act ===
+            // === 知识库最优先：所有其他意图（包括 OUT_OF_SCOPE）都先走 think→act 搜索知识库 ===
+            // 如果知识库有匹配 → 返回内容；如果知识库无匹配 → LLM 自行判断是否建议转人工
             dialogState.setDialogPhase(DialogPhase.RETRIEVING);
             dialogStateManager.updateState(sessionId, dialogState);
 
+            injectSearchQueryHint();
             boolean shouldAct = think();
             if (!shouldAct) {
                 setState(AgentState.FINISHED);
@@ -161,6 +236,7 @@ public class CustomerServiceAgent extends ToolCallAgent {
         } catch (Exception e) {
             log.error("[CustomerServiceAgent] step 执行失败", e);
             setState(AgentState.ERROR);
+            sendSseEvent("answer", "抱歉，处理您的请求时发生了错误：" + e.getMessage());
             return "步骤执行失败：" + e.getMessage();
         }
     }
@@ -268,6 +344,9 @@ public class CustomerServiceAgent extends ToolCallAgent {
             sb.append("已知信息：");
             dialogState.getFilledSlots().forEach((k, v) -> sb.append(k).append("=").append(v).append("，"));
         }
+        if (dialogState.getLastBotMessage() != null) {
+            sb.append("系统上次提问：").append(dialogState.getLastBotMessage()).append("；");
+        }
         return sb.toString();
     }
 
@@ -332,20 +411,19 @@ public class CustomerServiceAgent extends ToolCallAgent {
 
     // ==================== 增强澄清 ====================
 
+    /**
+     * 判断是否需要追问澄清。
+     * 设计原则：知识库最优先。几乎所有意图都先走 think→act 搜索知识库，
+     * LLM 看到知识库内容后自行判断是否需要追问。仅置信度过低时追问。
+     */
     private boolean needsClarification(IntentResult result) {
-        if (result.getIntent() == CustomerIntent.OUT_OF_SCOPE
-                || result.getIntent() == CustomerIntent.CHITCHAT
-                || result.getIntent() == CustomerIntent.REQUEST_HUMAN
-                || result.getIntent() == CustomerIntent.POLICY_QUERY
-                || result.getIntent() == CustomerIntent.PRODUCT_RECOMMEND) {
-            return false;
-        }
+        // 知识库优先：不再因缺少槽位而阻断搜索。让 LLM 先查知识库，再自行决定是否追问。
+        // 仅当置信度过低（LLM 也不确定用户意图）时才追问。
         if (result.getConfidence() < MIN_CONFIDENCE) {
             return true;
         }
-        List<SlotDefinition> slotDefs = intentConfig.getSlotDefinitions(result.getIntent().name());
-        List<SlotDefinition> missing = dialogState.getMissingSlots(slotDefs);
-        return !missing.isEmpty();
+        // 所有明确意图都直接走 think→act，知识库搜索优先
+        return false;
     }
 
     private String buildClarification(IntentResult result) {
@@ -409,6 +487,61 @@ public class CustomerServiceAgent extends ToolCallAgent {
             }
         }
         return null;
+    }
+
+    /**
+     * 在 think() 之前，将用户原始问题作为搜索指令注入到消息列表，
+     * 强制 LLM 使用完整原始提问作为知识库查询词，防止简化为关键词导致匹配错误。
+     */
+    private void injectSearchQueryHint() {
+        if (currentUserQuery == null || currentUserQuery.isBlank()) return;
+        // 避免重复注入
+        String hint = "【知识库搜索指令】调用 searchKnowledgeBase 时，查询词必须使用以下用户的原始完整问题，一字不改：「"
+                + currentUserQuery + "」";
+        // 检查是否已有相同指令
+        for (int i = getMessagesList().size() - 1; i >= 0; i--) {
+            String text = getMessagesList().get(i).getText();
+            if (text != null && text.contains("【知识库搜索指令】")) {
+                return; // 已注入，跳过
+            }
+        }
+        getMessagesList().add(new UserMessage(hint));
+        log.info("[CustomerServiceAgent] 注入搜索指令: {}", currentUserQuery);
+    }
+
+    /**
+     * 发送 answer 事件并保存到 lastBotMessage（用于多轮上下文）
+     * 同时将回复加入 messagesList，确保持久化能读取到
+     */
+    private void sendAnswerAndSaveContext(String content) {
+        sendSseEvent("answer", content);
+        // 加入 messagesList，确保持久化能读取到 assistant 回复
+        getMessagesList().add(new AssistantMessage(content));
+        if (dialogState != null) {
+            dialogState.setLastBotMessage(content);
+            dialogStateManager.updateState(sessionId, dialogState);
+        }
+    }
+
+    /**
+     * 为缺失槽位构建追问消息（槽位填充模式专用）
+     */
+    private String buildClarificationForMissing(List<SlotDefinition> missing) {
+        if (missing == null || missing.isEmpty()) {
+            return "请提供更多信息。";
+        }
+        if (missing.size() == 1) {
+            SlotDefinition slot = missing.get(0);
+            dialogState.setLastClarificationSlot(slot.getSlotName());
+            return intentConfig.getClarificationQuestion(slot.getSlotName());
+        }
+        dialogState.setLastClarificationSlot(missing.get(0).getSlotName());
+        StringBuilder sb = new StringBuilder("为了更好地帮助您，还需要以下信息：\n");
+        for (int i = 0; i < missing.size(); i++) {
+            sb.append(i + 1).append(". ").append(missing.get(i).getDescription()).append("\n");
+        }
+        sb.append("\n您也可以一次告诉我所有信息。");
+        return sb.toString();
     }
 
     public String getSessionId() { return sessionId; }

@@ -23,6 +23,10 @@ spring:
           max-active: 8
           max-idle: 8
           min-idle: 2
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
 
 server:
     port: 8123
@@ -69,6 +73,11 @@ knife4j:
   setting:
     language: zh_cn
 
+# 客服知识库配置
+cs:
+  faq:
+    data-dir: ./data/faq
+
 # AI Agent 配置
 ai:
   # RAG 增强功能配置（默认关闭，按需开启）
@@ -111,3 +120,10 @@ chat:
 jwt:
   secret: ${JWT_SECRET:default-secret-must-be-at-least-32-characters-long-for-security}
   expiration: 86400000
+
+# 日志级别配置
+logging:
+  level:
+    com.qh.ai_agent.service.UserService: INFO
+    com.qh.ai_agent.config.JwtAuthenticationFilter: DEBUG
+    com.qh.ai_agent.controller.AuthController: DEBUG

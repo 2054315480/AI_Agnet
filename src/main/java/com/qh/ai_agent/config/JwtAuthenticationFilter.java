@@ -30,18 +30,27 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         String token = extractToken(request);
+        String uri = request.getRequestURI();
+        log.debug("JWT 过滤器: uri={}, hasToken={}", uri, token != null);
 
-        if (token != null && jwtUtil.validateToken(token)) {
-            try {
-                Long userId = jwtUtil.getUserIdFromToken(token);
-                var user = userService.findById(userId);
-                if (user != null) {
-                    UsernamePasswordAuthenticationToken auth =
-                            new UsernamePasswordAuthenticationToken(user, null, List.of());
-                    SecurityContextHolder.getContext().setAuthentication(auth);
+        if (token != null) {
+            if (jwtUtil.validateToken(token)) {
+                try {
+                    Long userId = jwtUtil.getUserIdFromToken(token);
+                    var user = userService.findById(userId);
+                    if (user != null) {
+                        UsernamePasswordAuthenticationToken auth =
+                                new UsernamePasswordAuthenticationToken(user, null, List.of());
+                        SecurityContextHolder.getContext().setAuthentication(auth);
+                        log.debug("JWT 认证成功: userId={}, username={}, uri={}", userId, user.getUsername(), uri);
+                    } else {
+                        log.warn("JWT 认证失败: 用户不存在, userId={}, uri={}", userId, uri);
+                    }
+                } catch (Exception e) {
+                    log.warn("JWT 认证异常: {}, uri={}", e.getMessage(), uri);
                 }
-            } catch (Exception e) {
-                log.debug("JWT 认证失败: {}", e.getMessage());
+            } else {
+                log.debug("JWT token 验证失败（可能已过期）, uri={}", uri);
             }
         }
 

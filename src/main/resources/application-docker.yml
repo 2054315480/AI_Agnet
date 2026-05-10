@@ -1,0 +1,16 @@
+# ==============================================================
+# Docker 环境配置（覆盖 application-local.yml 中的 localhost）
+# 激活方式: spring.profiles.active=local,docker
+# ==============================================================
+spring:
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:postgres}:${POSTGRES_PORT:5432}/${POSTGRES_DB:Love_Agent}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres}
+  ai:
+    openai:
+      api-key: ${AI_API_KEY:PUT_YOUR_DASHSCOPE_API_KEY_HERE}
+      base-url: ${AI_BASE_URL:https://aigw.asiainfo.com}
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}

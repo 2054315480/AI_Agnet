@@ -4,12 +4,15 @@ import com.qh.ai_agent.config.JwtUtil;
 import com.qh.ai_agent.entity.User;
 import com.qh.ai_agent.service.UserService;
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+@Slf4j
 @RestController
 @RequestMapping("/auth")
 public class AuthController {
@@ -58,9 +61,18 @@ public class AuthController {
 
     @GetMapping("/me")
     public ResponseEntity<?> me(@AuthenticationPrincipal User user) {
+        // 回退：如果 @AuthenticationPrincipal 未解析，尝试直接从 SecurityContext 获取
         if (user == null) {
+            var auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.getPrincipal() instanceof User u) {
+                user = u;
+            }
+        }
+        if (user == null) {
+            log.warn("/auth/me 认证失败: 无有效用户信息");
             return ResponseEntity.status(401).body(Map.of("error", "未登录"));
         }
+        log.debug("/auth/me 成功: username={}", user.getUsername());
         return ResponseEntity.ok(sanitizeUser(user));
     }
 

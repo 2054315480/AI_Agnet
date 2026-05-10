@@ -13,13 +13,13 @@ import java.util.List;
 public class MykeywordEnricher {
 
     @Resource
-    private ChatModel dashscopeChatModel;
+    private ChatModel openAiChatModel;
 
     /**
      *基于AI的文档源信息增强器，为文档补充源信息
      */
     public List<Document> enrichDocuments( List<Document> documents) {
-        KeywordMetadataEnricher keywordMetadataEnricher = new KeywordMetadataEnricher(dashscopeChatModel, 5);
+        KeywordMetadataEnricher keywordMetadataEnricher = new KeywordMetadataEnricher(openAiChatModel, 5);
         return keywordMetadataEnricher.apply(documents);
     }
 }

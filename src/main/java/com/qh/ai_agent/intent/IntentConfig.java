@@ -34,11 +34,11 @@ public class IntentConfig {
                 .description("产品名称或型号")
                 .required(true).build();
 
-        // 退款原因
+        // 退款原因（接受任意自由文本）
         SlotDefinition refundReason = SlotDefinition.builder()
-                .slotName("refund_reason").slotType(SlotType.ENUM)
-                .description("退款原因")
-                .required(true).enumValues(List.of("质量问题", "不想要了", "发错货", "描述不符", "其他"))
+                .slotName("refund_reason").slotType(SlotType.STRING)
+                .description("退款原因，用户可自由描述")
+                .required(true)
                 .build();
 
         // 问题类型
@@ -72,7 +72,7 @@ public class IntentConfig {
         // 澄清问题模板
         clarificationTemplates.put("order_id", "请问您的订单号是多少？");
         clarificationTemplates.put("product_name", "请问您想了解哪个产品？");
-        clarificationTemplates.put("refund_reason", "请问退款的原因是什么？（质量问题/不想要了/发错货/描述不符/其他）");
+        clarificationTemplates.put("refund_reason", "请问退款的原因是什么？");
         clarificationTemplates.put("issue_type", "请问您遇到的是哪类问题？（物流问题/质量问题/服务态度/虚假宣传/其他）");
     }
 

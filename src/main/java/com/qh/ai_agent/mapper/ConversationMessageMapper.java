@@ -14,17 +14,17 @@ public interface ConversationMessageMapper extends BaseMapper<ConversationMessag
     @Select("SELECT * FROM conversation_messages WHERE conversation_id = #{conversationId} ORDER BY created_at ASC")
     List<ConversationMessage> findByConversationId(String conversationId);
 
-    /** 意图分布统计 */
-    @Select("SELECT intent, COUNT(*) as count FROM conversation_messages " +
+    /** 意图分布统计（按会话去重，同一会话同一意图只计一次） */
+    @Select("SELECT intent, COUNT(DISTINCT conversation_id) as count FROM conversation_messages " +
             "WHERE intent IS NOT NULL GROUP BY intent ORDER BY count DESC")
     List<Map<String, Object>> countByIntent();
 
-    /** 转人工次数 */
+    /** 转人工次数（按会话去重） */
     @Select("SELECT COUNT(DISTINCT conversation_id) FROM conversation_messages WHERE is_handoff = true")
     int countHandoffConversations();
 
-    /** 澄清触发次数 */
-    @Select("SELECT COUNT(*) FROM conversation_messages WHERE is_clarification = true")
+    /** 澄清触发次数（按会话去重，同一会话多次澄清只计一次） */
+    @Select("SELECT COUNT(DISTINCT conversation_id) FROM conversation_messages WHERE is_clarification = true")
     int countClarificationMessages();
 
     /** 平均置信度 */

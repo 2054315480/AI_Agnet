@@ -1,5 +1,6 @@
 package com.qh.ai_agent.controller;
 
+import com.qh.ai_agent.model.SessionQueryDTO;
 import com.qh.ai_agent.service.AnalyticsService;
 import com.qh.ai_agent.service.ExportService;
 import jakarta.servlet.http.HttpServletResponse;
@@ -34,16 +35,24 @@ public class AnalyticsController {
         return analyticsService.getIntentDistribution();
     }
 
-    /** 会话列表（含分析摘要） */
+    /** 会话列表（分页 + 排序 + 筛选） */
     @GetMapping("/sessions")
-    public List<Map<String, Object>> getSessionList() {
-        return analyticsService.getSessionList();
+    public Map<String, Object> getSessionList(SessionQueryDTO query) {
+        return analyticsService.getSessionList(query);
     }
 
     /** 单会话详情（完整对话回放） */
     @GetMapping("/sessions/{conversationId}")
     public Map<String, Object> getSessionDetail(@PathVariable String conversationId) {
         return analyticsService.getSessionDetail(conversationId);
+    }
+
+    /** 手动触发回填缺失的 analytics 记录（管理员用） */
+    @PostMapping("/backfill")
+    public Map<String, Object> backfillAnalytics() {
+        int count = analyticsService.backfillMissingAnalytics();
+        log.info("[Analytics-Controller] 手动回填完成: {} 条记录", count);
+        return Map.of("success", true, "backfilledCount", count);
     }
 
     /** 导出全部对话日志（CSV） */

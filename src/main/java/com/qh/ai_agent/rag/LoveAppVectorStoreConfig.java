@@ -9,6 +9,7 @@ import org.springframework.ai.embedding.Embedding;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,6 +19,7 @@ import java.util.List;
  * 恋爱大师向量数据库配置--初始化基于内存的向量数据库Bean
  */
 @Configuration
+@ConditionalOnProperty(name = "love.rag.enabled", havingValue = "true", matchIfMissing = false)
 public class LoveAppVectorStoreConfig {
     @Resource
     private LoveAppDocumentLoder loveAppDocumentLoder;

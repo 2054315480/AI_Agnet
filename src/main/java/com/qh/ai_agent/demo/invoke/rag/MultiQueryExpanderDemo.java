@@ -16,8 +16,8 @@ public class MultiQueryExpanderDemo {
     //查询扩展
     private final ChatClient.Builder  chatClientBuilder;
 
-    public MultiQueryExpanderDemo(ChatModel dashscopeChatModel) {
-        this.chatClientBuilder =ChatClient.builder(dashscopeChatModel);
+    public MultiQueryExpanderDemo(ChatModel openAiChatModel) {
+        this.chatClientBuilder =ChatClient.builder(openAiChatModel);
 
     }
     public List<Query> expand(String query) {

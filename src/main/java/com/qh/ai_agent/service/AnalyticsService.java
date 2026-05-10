@@ -1,11 +1,14 @@
 package com.qh.ai_agent.service;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.qh.ai_agent.entity.Conversation;
 import com.qh.ai_agent.entity.ConversationMessage;
 import com.qh.ai_agent.entity.DialogAnalytics;
 import com.qh.ai_agent.mapper.ConversationMapper;
 import com.qh.ai_agent.mapper.ConversationMessageMapper;
 import com.qh.ai_agent.mapper.DialogAnalyticsMapper;
+import com.qh.ai_agent.model.SessionQueryDTO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -63,47 +66,61 @@ public class AnalyticsService {
         return messageMapper.countByIntent();
     }
 
-    /** 会话列表（带分析摘要） */
-    public List<Map<String, Object>> getSessionList() {
-        List<Conversation> conversations = conversationMapper.selectList(null);
+    /** 排序字段白名单（防 SQL 注入） */
+    private static final Set<String> ALLOWED_SORT_COLUMNS = Set.of(
+            "c.created_at", "da.total_turns", "da.avg_confidence", "da.clarification_count"
+    );
 
-        return conversations.stream().map(conv -> {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("conversationId", conv.getId());
-            item.put("title", conv.getTitle());
-            item.put("agentType", conv.getAgentType());
-            item.put("createdAt", conv.getCreatedAt());
+    /** 会话列表（分页 + 排序 + 筛选） */
+    public Map<String, Object> getSessionList(SessionQueryDTO query) {
+        // 参数校验
+        int page = Math.max(query.getPage() == null ? 1 : query.getPage(), 1);
+        int size = Math.min(Math.max(query.getSize() == null ? 15 : query.getSize(), 1), 100);
 
-            List<ConversationMessage> messages = messageMapper.findByConversationId(conv.getId());
-            long userTurns = messages.stream().filter(m -> "user".equals(m.getRole())).count();
-            item.put("turnCount", userTurns);
+        // 排序字段白名单校验
+        String sortBy = sanitizeSortBy(query.getSortBy());
+        String sortOrder = "asc".equalsIgnoreCase(query.getSortOrder()) ? "ASC" : "DESC";
 
-            boolean hasHandoff = messages.stream().anyMatch(m -> Boolean.TRUE.equals(m.getIsHandoff()));
-            item.put("handoffTriggered", hasHandoff);
+        log.info("[Analytics] 会话列表查询: page={}, size={}, sortBy={}, sortOrder={}, intent={}, handoff={}, clarification={}",
+                page, size, sortBy, sortOrder, query.getIntent(), query.getHandoff(), query.getClarification());
 
-            long clarifications = messages.stream().filter(m -> Boolean.TRUE.equals(m.getIsClarification())).count();
-            item.put("clarificationCount", clarifications);
+        // 执行分页查询（单条 SQL，利用 dialog_analytics 预聚合数据）
+        IPage<Map<String, Object>> pageParam = new Page<>(page, size);
+        IPage<Map<String, Object>> result = analyticsMapper.selectSessionPage(
+                pageParam, sortBy, sortOrder,
+                query.getIntent(), query.getHandoff(), query.getClarification()
+        );
 
-            OptionalDouble avgConf = messages.stream()
-                    .filter(m -> m.getConfidence() != null)
-                    .mapToDouble(ConversationMessage::getConfidence)
-                    .average();
-            item.put("avgConfidence", avgConf.isPresent() ? String.format("%.2f", avgConf.getAsDouble()) : "N/A");
+        log.info("[Analytics] 会话列表查询结果: total={}, 当前页记录数={}", result.getTotal(), result.getRecords().size());
 
-            // 提取主要意图
-            String topIntent = messages.stream()
-                    .filter(m -> m.getIntent() != null && "assistant".equals(m.getRole()))
-                    .map(ConversationMessage::getIntent)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.groupingBy(i -> i, Collectors.counting()))
-                    .entrySet().stream()
-                    .max(Map.Entry.comparingByValue())
-                    .map(Map.Entry::getKey)
-                    .orElse(null);
-            item.put("topIntent", topIntent);
-
+        // 格式化 avg_confidence
+        List<Map<String, Object>> content = result.getRecords().stream().map(row -> {
+            Map<String, Object> item = new LinkedHashMap<>(row);
+            Object avgConf = row.get("avg_confidence");
+            if (avgConf instanceof Number) {
+                item.put("avg_confidence", String.format("%.2f", ((Number) avgConf).doubleValue()));
+            } else if (avgConf == null) {
+                item.put("avg_confidence", "N/A");
+            }
             return item;
         }).collect(Collectors.toList());
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("content", content);
+        response.put("total", result.getTotal());
+        response.put("page", result.getCurrent());
+        response.put("size", result.getSize());
+        response.put("totalPages", result.getPages());
+        return response;
+    }
+
+    /** 排序字段白名单校验 */
+    private String sanitizeSortBy(String sortBy) {
+        if (sortBy == null) return "c.created_at";
+        String column = "da." + sortBy;
+        if (ALLOWED_SORT_COLUMNS.contains(column)) return column;
+        if (ALLOWED_SORT_COLUMNS.contains(sortBy)) return sortBy;
+        return "c.created_at";
     }
 
     /** 单会话详情（含完整消息和分析） */
@@ -139,6 +156,33 @@ public class AnalyticsService {
         return detail;
     }
 
+    /**
+     * 回填缺失的 dialog_analytics 记录（启动时自动修复历史数据）
+     * 针对有 conversation_messages 但没有 dialog_analytics 的会话
+     */
+    public int backfillMissingAnalytics() {
+        // 使用直接 SQL 查找缺失 analytics 的会话，避免 selectList(null) 受分页拦截器的影响
+        List<String> missingIds = analyticsMapper.findConversationIdsWithoutAnalytics();
+        if (missingIds.isEmpty()) {
+            log.info("[Analytics] 回填检查: 所有会话已有 analytics 记录");
+            return 0;
+        }
+
+        log.info("[Analytics] 回填开始: 发现 {} 条缺失 analytics 的会话", missingIds.size());
+        int backfilled = 0;
+        for (String convId : missingIds) {
+            try {
+                updateAnalytics(convId);
+                backfilled++;
+                log.info("[Analytics] 回填 analytics 记录: sessionId={}", convId);
+            } catch (Exception e) {
+                log.error("[Analytics] 回填 analytics 失败: sessionId={}", convId, e);
+            }
+        }
+        log.info("[Analytics] 回填完成: 共处理 {} / {} 条缺失记录", backfilled, missingIds.size());
+        return backfilled;
+    }
+
     /** 会话结束后更新聚合分析表 */
     public void updateAnalytics(String conversationId) {
         List<ConversationMessage> messages = messageMapper.findByConversationId(conversationId);
@@ -159,7 +203,9 @@ public class AnalyticsService {
                 .collect(Collectors.groupingBy(ConversationMessage::getIntent, Collectors.counting()));
         analytics.setIntentDistribution(intentDist.isEmpty() ? null : intentDist.toString());
 
-        boolean hasHandoff = messages.stream().anyMatch(m -> Boolean.TRUE.equals(m.getIsHandoff()));
+        // 双重判断转人工：is_handoff 标记 + REQUEST_HUMAN 意图（防止 isHandoff 漏设）
+        boolean hasHandoff = messages.stream().anyMatch(m ->
+                Boolean.TRUE.equals(m.getIsHandoff()) || "REQUEST_HUMAN".equals(m.getIntent()));
         analytics.setHandoffTriggered(hasHandoff);
 
         long clarCount = messages.stream().filter(m -> Boolean.TRUE.equals(m.getIsClarification())).count();
@@ -176,8 +222,12 @@ public class AnalyticsService {
 
         if (analytics.getId() == null) {
             analyticsMapper.insert(analytics);
+            log.info("[Analytics] 新增 analytics 记录: sessionId={}, handoff={}, clarCount={}, turns={}",
+                    conversationId, hasHandoff, clarCount, userTurns);
         } else {
             analyticsMapper.updateById(analytics);
+            log.info("[Analytics] 更新 analytics 记录: sessionId={}, handoff={}, clarCount={}, turns={}",
+                    conversationId, hasHandoff, clarCount, userTurns);
         }
     }
 }

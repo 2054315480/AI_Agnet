@@ -1,6 +1,6 @@
 <template>
   <div class="app-shell">
-    <Sidebar v-if="!isLoginPage" :open="sidebarOpen" @toggle="toggleSidebar" />
+    <Sidebar v-if="!isLoginPage" :open="sidebarOpen" @toggle="toggleSidebar" @openBatchTest="openBatchTest" />
     <main class="main-area">
       <router-view />
     </main>
@@ -12,6 +12,8 @@
         @click="toggleSidebar"
       />
     </transition>
+    <!-- Batch test panel -->
+    <BatchTestPanel ref="batchTestPanelRef" />
   </div>
 </template>
 
@@ -19,12 +21,14 @@
 import { ref, computed, onMounted, onUnmounted, provide, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
+import BatchTestPanel from './components/BatchTestPanel.vue'
 import { useConversations } from './composables/useConversations.js'
 import { useAuth } from './api/auth.js'
 
 const sidebarOpen = ref(true)
 const windowWidth = ref(window.innerWidth)
 const route = useRoute()
+const batchTestPanelRef = ref(null)
 
 const isMobile = computed(() => windowWidth.value < 768)
 const isLoginPage = computed(() => route.path === '/login')
@@ -72,6 +76,10 @@ function handleResize() {
 
 function toggleSidebar() {
   sidebarOpen.value = !sidebarOpen.value
+}
+
+function openBatchTest() {
+  batchTestPanelRef.value?.open()
 }
 
 // Provide sidebar control to child components (for mobile FAB)

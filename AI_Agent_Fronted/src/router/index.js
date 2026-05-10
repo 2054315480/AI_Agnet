@@ -20,6 +20,12 @@ const routes = [
     meta: { title: 'FAQ 管理 - AI Agent', requiresAuth: true, requiresAdmin: true }
   },
   {
+    path: '/analytics',
+    name: 'Analytics',
+    component: () => import('../components/AnalyticsView.vue'),
+    meta: { title: '对话分析 - AI Agent', requiresAuth: true }
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/'
   }
