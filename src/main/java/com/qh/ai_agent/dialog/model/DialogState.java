@@ -125,7 +125,12 @@ public class DialogState {
                 .toList();
     }
 
-    /** 是否处于槽位填充或澄清阶段 */
+    /**
+     * 是否处于槽位填充或澄清阶段。
+     * 这是派生属性（没有对应字段），标记 @JsonIgnore 避免被序列化进 Redis，
+     * 否则反序列化时会因为缺少该字段的 setter 而失败。
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
     public boolean isSlotFillingOrClarifying() {
         return this.dialogPhase == DialogPhase.SLOT_FILLING
                 || this.dialogPhase == DialogPhase.CLARIFYING;

@@ -2,32 +2,47 @@ package com.qh.ai_agent.dialog;
 
 import com.qh.ai_agent.dialog.model.DialogPhase;
 import com.qh.ai_agent.dialog.model.DialogState;
+import com.qh.ai_agent.dialog.store.DialogStateStore;
+import com.qh.ai_agent.dialog.store.InMemoryDialogStateStore;
 import com.qh.ai_agent.intent.IntentConfig;
-import com.qh.ai_agent.intent.model.CustomerIntent;
+import com.qh.ai_agent.intent.model.SlotDefinition;
 import com.qh.ai_agent.intent.model.IntentResult;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 对话状态管理器
+ * 对话状态管理器。
+ *
+ * 会话状态不再直接放在本类的 ConcurrentHashMap 里，而是委托给 DialogStateStore：
+ * - memory：单实例内存，带 TTL 与容量上限（默认）
+ * - redis ：多实例共享 + TTL（cs.session.store=redis）
+ * 这样切换存储实现不影响本类与调用方。
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class DialogStateManager {
-
-    private final IntentConfig intentConfig;
-
-    /** 会话状态缓存 */
-    private final ConcurrentHashMap<String, DialogState> stateCache = new ConcurrentHashMap<>();
 
     /** 转人工触发阈值：连续 OUT_OF_SCOPE 轮数 */
     private static final int HANDOFF_THRESHOLD = 2;
+
+    private final IntentConfig intentConfig;
+    private final DialogStateStore store;
+
+    /** 单测或手工 new 时使用：默认内存存储 */
+    public DialogStateManager(IntentConfig intentConfig) {
+        this(intentConfig, new InMemoryDialogStateStore(30, 5000));
+    }
+
+    /** Spring 装配：注入由 SessionStoreConfig 决定的存储实现 */
+    @Autowired
+    public DialogStateManager(IntentConfig intentConfig, DialogStateStore store) {
+        this.intentConfig = intentConfig;
+        this.store = store;
+    }
 
     /**
      * 创建新会话
@@ -38,8 +53,8 @@ public class DialogStateManager {
                 .sessionId(sessionId)
                 .dialogPhase(DialogPhase.GREETING)
                 .build();
-        stateCache.put(sessionId, state);
-        log.info("[DialogStateManager] 创建会话: {}", sessionId);
+        store.put(sessionId, state);
+        log.info("[DialogStateManager] 创建会话: {}（存储：{}）", sessionId, store.describe());
         return state;
     }
 
@@ -50,27 +65,24 @@ public class DialogStateManager {
         if (sessionId == null || sessionId.isBlank()) {
             return createSession();
         }
-        return stateCache.computeIfAbsent(sessionId, id -> {
-            DialogState s = DialogState.builder()
-                    .sessionId(id)
-                    .dialogPhase(DialogPhase.GREETING)
-                    .build();
-            return s;
-        });
+        return store.getOrCreate(sessionId, () -> DialogState.builder()
+                .sessionId(sessionId)
+                .dialogPhase(DialogPhase.GREETING)
+                .build());
     }
 
     /**
      * 获取会话状态
      */
     public DialogState getState(String sessionId) {
-        return stateCache.get(sessionId);
+        return store.get(sessionId);
     }
 
     /**
      * 更新会话状态
      */
     public void updateState(String sessionId, DialogState state) {
-        stateCache.put(sessionId, state);
+        store.put(sessionId, state);
     }
 
     /**
@@ -80,7 +92,7 @@ public class DialogStateManager {
         DialogState state = getOrCreateState(sessionId);
 
         // 获取当前意图对应的槽位定义
-        List<com.qh.ai_agent.intent.model.SlotDefinition> slotDefs = List.of();
+        List<SlotDefinition> slotDefs = List.of();
         if (intentResult.getIntent() != null) {
             slotDefs = intentConfig.getSlotDefinitions(intentResult.getIntent().name());
         }
@@ -94,7 +106,7 @@ public class DialogStateManager {
             log.info("[DialogStateManager] 会话 {} 连续 {} 轮超范围，触发转人工", sessionId, HANDOFF_THRESHOLD);
         }
 
-        stateCache.put(sessionId, state);
+        store.put(sessionId, state);
         return state;
     }
 
@@ -102,7 +114,7 @@ public class DialogStateManager {
      * 清除会话状态
      */
     public void clearState(String sessionId) {
-        stateCache.remove(sessionId);
+        store.remove(sessionId);
         log.info("[DialogStateManager] 清除会话: {}", sessionId);
     }
 
@@ -110,9 +122,10 @@ public class DialogStateManager {
      * 关闭会话：阶段置为 CLOSED，历史数据保留用于分析。
      */
     public void closeSession(String sessionId) {
-        DialogState state = stateCache.get(sessionId);
+        DialogState state = store.get(sessionId);
         if (state != null) {
             state.setDialogPhase(DialogPhase.CLOSED);
+            store.put(sessionId, state);
             log.info("[DialogStateManager] 会话 {} 已关闭", sessionId);
         }
     }
@@ -120,12 +133,17 @@ public class DialogStateManager {
     /**
      * 关闭后重新开一条干净状态，复用同一个 sessionId。
      */
+    /** 当前会话存储实现描述，便于排障与演示 */
+    public String storeInfo() {
+        return store.describe();
+    }
+
     public DialogState resetSession(String sessionId) {
         DialogState fresh = DialogState.builder()
                 .sessionId(sessionId)
                 .dialogPhase(DialogPhase.GREETING)
                 .build();
-        stateCache.put(sessionId, fresh);
+        store.put(sessionId, fresh);
         log.info("[DialogStateManager] 会话 {} 状态已重置", sessionId);
         return fresh;
     }
