@@ -1,6 +1,7 @@
 package com.qh.ai_agent.rag;
 
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.Embedding;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -15,6 +16,7 @@ import java.util.List;
 import static org.springframework.ai.vectorstore.pgvector.PgVectorStore.PgDistanceType.COSINE_DISTANCE;
 import static org.springframework.ai.vectorstore.pgvector.PgVectorStore.PgIndexType.HNSW;
 
+@Slf4j
 @Configuration
 public class PgvectorVectorStoreConfig {
 
@@ -58,6 +60,18 @@ public class PgvectorVectorStoreConfig {
                 .vectorTableName(tableName)          // 使用新的表名，避免已存在表的维度冲突
                 .maxDocumentBatchSize(10000)         // Optional: defaults to 10000
                 .build();
+        // 已索引就跳过：表里已有向量数据时不再重复调用 Embedding API（重启不重复嵌入）
+        Integer existingCount = null;
+        try {
+            existingCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + tableName, Integer.class);
+        } catch (Exception e) {
+            log.warn("[PgVector] 统计已有向量条数失败，将按空表处理: {}", e.getMessage());
+        }
+        if (existingCount != null && existingCount > 0) {
+            log.info("[PgVector] 向量库 {} 已有 {} 条数据，跳过重新嵌入（如需重建请先清空该表）", tableName, existingCount);
+            return vectorStore;
+        }
+
         List< Document> documents =loveAppDocumentLoder.loadMarkdown();
 
         // 分批添加，每批最多 10 条（阿里云 DashScope Embedding API 限制）
@@ -68,6 +82,7 @@ public class PgvectorVectorStoreConfig {
             vectorStore.add(batch);
         }
 
+        log.info("[PgVector] 向量库 {} 首次嵌入完成，共 {} 条文档", tableName, documents.size());
         return vectorStore;
     }
 }
