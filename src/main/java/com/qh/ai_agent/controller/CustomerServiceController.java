@@ -1,7 +1,7 @@
 package com.qh.ai_agent.controller;
 
-import com.qh.ai_agent.agent.customer_service.CustomerServiceAgent;
-import com.qh.ai_agent.agent.customer_service.CustomerServiceTools;
+import com.qh.ai_agent.Agent.customer_service.CustomerServiceAgent;
+import com.qh.ai_agent.Agent.customer_service.CustomerServiceTools;
 import com.qh.ai_agent.dialog.DialogStateManager;
 import com.qh.ai_agent.dialog.model.DialogState;
 import com.qh.ai_agent.dto.BatchTestResult;
@@ -237,4 +237,15 @@ public class CustomerServiceController {
         }
         return null;
     }
+
+    /**
+     * 关闭会话：状态机置为 CLOSED；下次再发消息会自动重新初始化。
+     */
+    @PostMapping("/session/{sessionId}/close")
+    public Map<String, Object> closeSession(@PathVariable String sessionId) {
+        log.info("[CS-Controller] 关闭会话: {}", sessionId);
+        dialogStateManager.closeSession(sessionId);
+        return Map.of("sessionId", sessionId, "closed", true);
+    }
+
 }

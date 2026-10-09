@@ -105,4 +105,29 @@ public class DialogStateManager {
         stateCache.remove(sessionId);
         log.info("[DialogStateManager] 清除会话: {}", sessionId);
     }
+
+    /**
+     * 关闭会话：阶段置为 CLOSED，历史数据保留用于分析。
+     */
+    public void closeSession(String sessionId) {
+        DialogState state = stateCache.get(sessionId);
+        if (state != null) {
+            state.setDialogPhase(DialogPhase.CLOSED);
+            log.info("[DialogStateManager] 会话 {} 已关闭", sessionId);
+        }
+    }
+
+    /**
+     * 关闭后重新开一条干净状态，复用同一个 sessionId。
+     */
+    public DialogState resetSession(String sessionId) {
+        DialogState fresh = DialogState.builder()
+                .sessionId(sessionId)
+                .dialogPhase(DialogPhase.GREETING)
+                .build();
+        stateCache.put(sessionId, fresh);
+        log.info("[DialogStateManager] 会话 {} 状态已重置", sessionId);
+        return fresh;
+    }
+
 }

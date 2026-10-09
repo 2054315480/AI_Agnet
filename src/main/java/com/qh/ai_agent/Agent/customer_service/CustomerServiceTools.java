@@ -1,4 +1,4 @@
-package com.qh.ai_agent.agent.customer_service;
+package com.qh.ai_agent.Agent.customer_service;
 
 import com.qh.ai_agent.knowledge.KnowledgeSearchService;
 import com.qh.ai_agent.knowledge.KnowledgeSearchService.HybridSearchResult;

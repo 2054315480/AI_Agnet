@@ -53,6 +53,14 @@ public  class ToolCallAgent extends ReActAgent{
 
     // 普通对话是否开启思考模式（部分模型如 MiniMax-M2.1 强制要求开启）
     private Boolean chatEnableThinking = true;
+    /** 本轮 think 是否已经向前端推送过增量文本，工具调用轮需要回撤 */
+    private boolean streamedDeltaThisTurn = false;
+
+    /** 兜底打字机：每片字符数，模型端不支持流式时使用 */
+    private static final int TYPEWRITER_CHUNK_SIZE = 12;
+
+    /** 兜底打字机：每片之间的间隔毫秒数 */
+    private static final long TYPEWRITER_CHUNK_DELAY_MS = 15L;
 
     public ToolCallAgent(ToolCallback[] availableTools, ChatModel chatModel, ToolCallingManager toolCallingManager) {
         super();
@@ -126,27 +134,34 @@ public  class ToolCallAgent extends ReActAgent{
         Prompt prompt = new Prompt(allMessages, options);
         try {
             // 直接调用 ChatModel，获取包含工具调用的原始响应（不会被自动执行）
-            ChatResponse chatResponse = chatModel.call(prompt);
+            // 【改造】SSE 模式下优先 token 级流式，最后聚合成完整响应
+            ModelTurn turn = callModelWithStreaming(prompt);
 
-            this.toolCallchatResponse = chatResponse;
-
-            // 助手消息
-            AssistantMessage assistantMessage = chatResponse.getResult().getOutput();
+            this.toolCallchatResponse = turn.response();
 
             // 获取需要调用的工具列表
-            List<AssistantMessage.ToolCall> toolCallList = assistantMessage.getToolCalls();
+            List<AssistantMessage.ToolCall> toolCallList = turn.toolCalls();
 
             // 输出提示消息
-            String result = assistantMessage.getText();
+            String result = turn.text();
             log.info("[ToolThink] agent={} | step={} | thinking={}", getName(), getCurrentStep(),
                     result != null ? result.substring(0, Math.min(result.length(), 200)) : "null");
 
             if (toolCallList == null || toolCallList.isEmpty()) {
-                // 没有工具调用，任务完成 —— 发送最终答案
-                getMessagesList().add(assistantMessage);
-                sendSseEvent("answer", result != null ? result : "（无文本输出）");
+                // 没有工具调用：任务完成，收口最终答案
+                if (StrUtil.isNotBlank(result)) {
+                    getMessagesList().add(new AssistantMessage(result));
+                }
+                emitFinalAnswer(result);
+                onFinalAnswer(result);
                 return false;
             } else {
+                // 本轮是工具调用轮：之前推的增量不是最终答案，先回撤并归入思考过程
+                if (streamedDeltaThisTurn) {
+                    sendSseEvent("thinking", "模型先给出中间说明，随后决定调用工具。");
+                    sendSseEvent("answer_reset", "");
+                    streamedDeltaThisTurn = false;
+                }
                 log.info("[ToolThink] agent={} | step={} | selectedTools={}", getName(), getCurrentStep(), toolCallList.size());
                 String toolCallInfo = toolCallList.stream()
                         .map(toolcall -> String.format("工具名称：%s, 参数: %s ", toolcall.name(), toolcall.arguments()))
@@ -216,5 +231,148 @@ public  class ToolCallAgent extends ReActAgent{
     }
 
 
+
+
+    // ==================== 流式输出支持 ====================
+
+    /** 一次模型调用的聚合结果：原始响应含 tool calls、完整文本、工具调用列表 */
+    private record ModelTurn(ChatResponse response, String text, List<AssistantMessage.ToolCall> toolCalls) {}
+
+    /**
+     * 调用模型：SSE 模式下优先 token 级流式，增量文本实时推给前端；
+     * 非 SSE 模式或流式不可用时退回一次性调用。
+     * 两条路径都返回完整响应，think/act 的后续逻辑完全复用。
+     */
+    private ModelTurn callModelWithStreaming(Prompt prompt) {
+        this.streamedDeltaThisTurn = false;
+
+        // 没有 SSE 通道时（run 同步调用、单元测试）直接一次性调用
+        if (getCurrentSseEmitter() == null) {
+            return toTurn(chatModel.call(prompt));
+        }
+
+        try {
+            List<ChatResponse> chunks = chatModel.stream(prompt)
+                    .doOnNext(chunk -> {
+                        String delta = extractText(chunk);
+                        if (StrUtil.isNotBlank(delta)) {
+                            sendSseEvent("answer_delta", delta);
+                        }
+                    })
+                    .collectList()
+                    .block();
+
+            if (chunks == null || chunks.isEmpty()) {
+                throw new IllegalStateException("流式响应为空");
+            }
+
+            // 纯函数聚合，便于单测：文本拼接 + 取最后一个携带 tool calls 的分片
+            String fullText = aggregateText(chunks);
+            List<AssistantMessage.ToolCall> toolCalls = pickToolCalls(chunks);
+            streamedDeltaThisTurn = StrUtil.isNotBlank(fullText);
+
+            if (StrUtil.isBlank(fullText) && toolCalls.isEmpty()) {
+                throw new IllegalStateException("流式响应既没有文本也没有工具调用");
+            }
+
+            ChatResponse response = chunks.get(chunks.size() - 1);
+            if (!toolCalls.isEmpty()) {
+                for (ChatResponse chunk : chunks) {
+                    if (!extractToolCalls(chunk).isEmpty()) {
+                        response = chunk;
+                    }
+                }
+            }
+            return new ModelTurn(response, fullText, toolCalls);
+        } catch (Exception e) {
+            log.warn("[Stream] 流式调用不可用，降级为一次性调用: {}", e.getMessage());
+            return toTurn(chatModel.call(prompt));
+        }
+    }
+
+    /** 把一次性调用响应包装成 ModelTurn */
+    private ModelTurn toTurn(ChatResponse response) {
+        if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+            throw new IllegalStateException("模型返回为空");
+        }
+        AssistantMessage message = response.getResult().getOutput();
+        List<AssistantMessage.ToolCall> calls = message.getToolCalls();
+        return new ModelTurn(response, message.getText(), calls != null ? calls : List.of());
+    }
+
+    /**
+     * 推送最终答案：
+     * 1. 已经流式推过增量，补一个 answer 收口事件，前端用完整文本覆盖，保证最终一致；
+     * 2. 没有流式推过，即模型端不支持流式，按片推送 answer_delta，保证前端仍有打字机效果。
+     */
+    private void emitFinalAnswer(String text) {
+        String safe = text != null ? text : "（无文本输出）";
+        if (streamedDeltaThisTurn) {
+            sendSseEvent("answer", safe);
+            return;
+        }
+        if (getCurrentSseEmitter() != null && safe.length() > TYPEWRITER_CHUNK_SIZE) {
+            for (int i = 0; i < safe.length(); i += TYPEWRITER_CHUNK_SIZE) {
+                String part = safe.substring(i, Math.min(safe.length(), i + TYPEWRITER_CHUNK_SIZE));
+                sendSseEvent("answer_delta", part);
+                try {
+                    Thread.sleep(TYPEWRITER_CHUNK_DELAY_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        sendSseEvent("answer", safe);
+    }
+
+    /** 取一个流式分片的文本增量，result/output 可能为空 */
+    static String extractText(ChatResponse response) {
+        if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+            return null;
+        }
+        return response.getResult().getOutput().getText();
+    }
+
+    /** 取一个流式分片的工具调用，result/output 可能为空 */
+    static List<AssistantMessage.ToolCall> extractToolCalls(ChatResponse response) {
+        if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+            return List.of();
+        }
+        List<AssistantMessage.ToolCall> calls = response.getResult().getOutput().getToolCalls();
+        return calls != null ? calls : List.of();
+    }
+
+    /**
+     * 最终答案产出后的回调，流式与非流式都会触发，由子类覆写做状态维护。
+     * @param answerText 最终答案文本，可能为 null
+     */
+    /** 聚合流式分片的完整文本，纯函数便于单测 */
+    static String aggregateText(List<ChatResponse> chunks) {
+        StringBuilder sb = new StringBuilder();
+        for (ChatResponse chunk : chunks) {
+            String delta = extractText(chunk);
+            if (StrUtil.isNotBlank(delta)) {
+                sb.append(delta);
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 取最后一个携带工具调用的分片，OpenAI 兼容实现会把 tool call 分片合并累积 */
+    static List<AssistantMessage.ToolCall> pickToolCalls(List<ChatResponse> chunks) {
+        List<AssistantMessage.ToolCall> toolCalls = List.of();
+        for (ChatResponse chunk : chunks) {
+            List<AssistantMessage.ToolCall> calls = extractToolCalls(chunk);
+            if (!calls.isEmpty()) {
+                toolCalls = calls;
+            }
+        }
+        return toolCalls;
+    }
+
+    protected void onFinalAnswer(String answerText) {
+        // 默认空实现，由子类覆写
+    }
 
 }

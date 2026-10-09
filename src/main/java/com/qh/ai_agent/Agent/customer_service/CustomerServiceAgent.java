@@ -1,4 +1,4 @@
-package com.qh.ai_agent.agent.customer_service;
+package com.qh.ai_agent.Agent.customer_service;
 
 import com.qh.ai_agent.Agent.Model.AgentState;
 import com.qh.ai_agent.Agent.ToolCallAgent;
@@ -104,6 +104,11 @@ public class CustomerServiceAgent extends ToolCallAgent {
                 return "无用户输入";
             }
             this.currentUserQuery = lastUserInput;
+            // 会话已关闭时重新初始化状态，避免复用已结束的会话
+            if (dialogState != null && dialogState.getDialogPhase() == DialogPhase.CLOSED) {
+                log.info("[StateMachine] 会话 {} 处于 CLOSED，重新初始化状态", sessionId);
+                dialogState = dialogStateManager.resetSession(sessionId);
+            }
 
             // 后续轮次直接走 think→act（意图识别仅在首轮执行）
             if (getCurrentStep() > 1) {
@@ -172,17 +177,18 @@ public class CustomerServiceAgent extends ToolCallAgent {
                         dialogState.setDialogPhase(DialogPhase.SLOT_FILLING);
                         dialogStateManager.updateState(sessionId, dialogState);
                         String clarification = buildClarificationForMissing(missing);
-                        sendAnswerAndSaveContext(clarification);
+                        sendClarificationAndSaveContext(clarification);
                         setState(AgentState.FINISHED);
                         return "槽位填充 - 继续追问：" + clarification;
                     }
                 } else {
-                    // 未提取到有效槽位，继续追问
+                    // 未提取到有效槽位，继续追问（保持 SLOT_FILLING 阶段，使状态机连续）
                     dialogState.setTurnCount(dialogState.getTurnCount() + 1);
+                    dialogState.setDialogPhase(DialogPhase.SLOT_FILLING);
                     dialogStateManager.updateState(sessionId, dialogState);
                     String clarification = buildClarificationForMissing(
                             dialogState.getMissingSlots(slotDefs));
-                    sendAnswerAndSaveContext(clarification);
+                    sendClarificationAndSaveContext(clarification);
                     setState(AgentState.FINISHED);
                     return "槽位填充 - 未提取到信息，重新追问";
                 }
@@ -191,6 +197,10 @@ public class CustomerServiceAgent extends ToolCallAgent {
             // === 阶段二增强：指代消解 + 上下文补全 ===
             String resolvedInput = resolveReferences(lastUserInput);
 
+            // 状态机：进入意图收集阶段
+            dialogState.setDialogPhase(DialogPhase.INTENT_COLLECT);
+            dialogStateManager.updateState(sessionId, dialogState);
+
             // === 意图识别 + 槽位提取（传入对话状态） ===
             IntentResult intentResult = intentClassifier.classify(
                     resolvedInput,
@@ -198,40 +208,75 @@ public class CustomerServiceAgent extends ToolCallAgent {
                     dialogState
             );
 
-            // 更新对话状态
+            // 更新对话状态（由 DialogState 根据置信度与槽位完整度决定进入 CLARIFYING 或 SLOT_FILLING 或 RETRIEVING）
             dialogState = dialogStateManager.updateFromIntentResult(sessionId, intentResult);
             sendSseEvent("intent", formatIntentEvent(intentResult));
 
-            // === 仅用户明确要求人工时立即转接，不搜索知识库 ===
-            if (intentResult.getIntent() == CustomerIntent.REQUEST_HUMAN) {
-                dialogState.setDialogPhase(DialogPhase.HANDOFF);
-                dialogState.setHandoffTriggered(true);
-                dialogStateManager.updateState(sessionId, dialogState);
-                sendSseEvent("handoff", "用户要求转人工");
-                sendAnswerAndSaveContext("正在为您转接人工客服，请稍候...");
-                setState(AgentState.FINISHED);
-                return "用户明确要求转人工";
+            // === 1. 转人工判定：用户明确要求 / 连续超范围 / 轮次过长 / 状态机已标记 ===
+            if (shouldHandoff(intentResult)) {
+                return doHandoff(buildHandoffReason(intentResult));
             }
 
-            // === 闲聊直接回复 ===
+            // === 2. 闲聊直接回复 ===
             if (intentResult.getIntent() == CustomerIntent.CHITCHAT) {
-                sendAnswerAndSaveContext("您好！我是智能客服，很高兴为您服务。请问有什么可以帮您的？您可以问我订单、产品、退换货、保修等相关问题。");
+                String chitchatReply = "您好！我是智能客服，很高兴为您服务。请问有什么可以帮您的？您可以问我订单、产品、退换货、保修等相关问题。";
+                dialogState.setDialogPhase(DialogPhase.ANSWERING);
+                dialogStateManager.updateState(sessionId, dialogState);
+                sendAnswerAndSaveContext(chitchatReply);
                 setState(AgentState.FINISHED);
                 return "寒暄回复";
             }
 
-            // === 知识库最优先：所有其他意图（包括 OUT_OF_SCOPE）都先走 think→act 搜索知识库 ===
-            // 如果知识库有匹配 → 返回内容；如果知识库无匹配 → LLM 自行判断是否建议转人工
+            // === 3. 知识库最优先：所有其他意图（包括 OUT_OF_SCOPE）都先检索知识库 ===
             dialogState.setDialogPhase(DialogPhase.RETRIEVING);
             dialogStateManager.updateState(sessionId, dialogState);
 
             injectSearchQueryHint();
             boolean shouldAct = think();
             if (!shouldAct) {
+                // 最终答案已由 think() 推送，阶段由 onFinalAnswer() 置为 ANSWERING
                 setState(AgentState.FINISHED);
                 return "思考完成 - 无需行动";
             }
-            return actAndExtractSuggestions();
+            String actResult = actAndExtractSuggestions();
+            // 命中判定只看是否真的检索到档案，不用分数阈值，避免 RRF 低分量级被误判为空
+            boolean knowledgeHit = hasKnowledgeResults(actResult);
+
+            // === 4. 知识库没命中：先追问缺失槽位，再按低置信度澄清，状态机真正生效 ===
+            if (!knowledgeHit) {
+                List<SlotDefinition> slotDefs = intentConfig.getSlotDefinitions(intentResult.getIntent().name());
+                List<SlotDefinition> missing = dialogState.getMissingSlots(slotDefs);
+                if (!missing.isEmpty()) {
+                    dialogState.setDialogPhase(DialogPhase.SLOT_FILLING);
+                    dialogState.updatePendingSlots(slotDefs);
+                    dialogStateManager.updateState(sessionId, dialogState);
+                    String question = buildClarificationForMissing(missing);
+                    sendClarificationAndSaveContext(question);
+                    setState(AgentState.FINISHED);
+                    return "槽位填充 - 追问：" + question;
+                }
+                if (needsClarification(intentResult)) {
+                    dialogState.setDialogPhase(DialogPhase.CLARIFYING);
+                    dialogStateManager.updateState(sessionId, dialogState);
+                    String question = buildClarification(intentResult);
+                    sendClarificationAndSaveContext(question);
+                    setState(AgentState.FINISHED);
+                    return "低置信度 - 澄清：" + question;
+                }
+            }
+
+            // === 5. 超范围但知识库命中：纠正意图 ===
+            if (intentResult.getIntent() == CustomerIntent.OUT_OF_SCOPE && knowledgeHit) {
+                sendSseEvent("intent", formatIntentEvent(IntentResult.builder()
+                        .intent(CustomerIntent.POLICY_QUERY)
+                        .confidence(0.85)
+                        .slots(intentResult.getSlots())
+                        .build()));
+                log.info("[CustomerServiceAgent] 知识库命中，OUT_OF_SCOPE 意图已纠正为 POLICY_QUERY");
+            }
+
+            // === 6. 正常作答完成，阶段由 onFinalAnswer() 置为 ANSWERING ===
+            return actResult;
 
         } catch (Exception e) {
             log.error("[CustomerServiceAgent] step 执行失败", e);
@@ -480,6 +525,27 @@ public class CustomerServiceAgent extends ToolCallAgent {
         return sb.toString();
     }
 
+    /**
+     * 检查知识库工具结果中是否有真正相关的匹配
+     * FAQ 直接命中 → 肯定相关；否则检查 relevance 分数是否有 >= 0.3 的
+     */
+    private boolean hasRelevantKnowledgeMatch(String actResult) {
+        // FAQ 直接命中，高度可信
+        if (actResult.contains("\"matchType\":\"faq_direct\"")) {
+            return true;
+        }
+        // 混合搜索：提取所有 relevance 值，有 >= 0.3 的才算有效匹配
+        Pattern relevancePattern = Pattern.compile("\"relevance\":([0-9.]+)");
+        Matcher m = relevancePattern.matcher(actResult);
+        while (m.find()) {
+            try {
+                double rel = Double.parseDouble(m.group(1));
+                if (rel >= 0.3) return true;
+            } catch (NumberFormatException ignored) {}
+        }
+        return false;
+    }
+
     private String getLastUserMessage() {
         for (int i = getMessagesList().size() - 1; i >= 0; i--) {
             if (getMessagesList().get(i) instanceof UserMessage um) {
@@ -542,6 +608,63 @@ public class CustomerServiceAgent extends ToolCallAgent {
         }
         sb.append("\n您也可以一次告诉我所有信息。");
         return sb.toString();
+    }
+
+    /**
+     * 判断工具结果里是否真的检索到了档案。
+     * 只判断有没有结果，不判断分数高低：RRF 融合分的量级只有 0.09 左右，
+     * 用 0.3 之类的分数阈值会把正常的融合命中误判成"知识库没有"。
+     */
+    private boolean hasKnowledgeResults(String actResult) {
+        if (actResult == null || actResult.isBlank()) {
+            return false;
+        }
+        if (actResult.contains("\"matchType\":\"faq_direct\"")) {
+            return true;
+        }
+        int idx = actResult.indexOf("\"results\":[");
+        if (idx < 0) {
+            return false;
+        }
+        int open = actResult.indexOf('[', idx);
+        int close = actResult.indexOf(']', open);
+        if (close < 0) {
+            return true;
+        }
+        return actResult.substring(open + 1, close).trim().length() > 0;
+    }
+
+    /** 转人工收口：置 HANDOFF 阶段、推送事件、保存上下文 */
+    private String doHandoff(String reason) {
+        dialogState.setDialogPhase(DialogPhase.HANDOFF);
+        dialogState.setHandoffTriggered(true);
+        dialogStateManager.updateState(sessionId, dialogState);
+        sendSseEvent("handoff", reason);
+        sendAnswerAndSaveContext("正在为您转接人工客服，请稍候...");
+        setState(AgentState.FINISHED);
+        return "转人工：" + reason;
+    }
+
+    /** 发送澄清/追问事件并保存上下文，与 answer 区分，前端据此渲染澄清卡片 */
+    private void sendClarificationAndSaveContext(String content) {
+        sendSseEvent("clarification", content);
+        getMessagesList().add(new AssistantMessage(content));
+        if (dialogState != null) {
+            dialogState.setLastBotMessage(content);
+            dialogStateManager.updateState(sessionId, dialogState);
+        }
+    }
+
+    /** 最终答案产出后同步对话状态：阶段置 ANSWERING，记录上一轮回复 */
+    @Override
+    protected void onFinalAnswer(String answerText) {
+        if (dialogState != null && dialogState.getDialogPhase() != DialogPhase.HANDOFF) {
+            dialogState.setDialogPhase(DialogPhase.ANSWERING);
+            if (answerText != null) {
+                dialogState.setLastBotMessage(answerText);
+            }
+            dialogStateManager.updateState(sessionId, dialogState);
+        }
     }
 
     public String getSessionId() { return sessionId; }

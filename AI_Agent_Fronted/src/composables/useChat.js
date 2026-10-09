@@ -73,6 +73,18 @@ export function useChat() {
           // 工具调用步骤
           const steps = [...(lastMsg.thinkingSteps || []), { type: event.type, content: event.content }]
           updateLastMessage(convId, { thinkingSteps: steps, loading: true })
+        } else if (event.type === 'answer_delta') {
+          // token 级流式增量：追加到当前气泡，形成打字机效果
+          const cur = getLastMsg(convId)
+          updateLastMessage(convId, { content: ((cur && cur.content) || '') + event.content, loading: true })
+        } else if (event.type === 'answer_reset') {
+          // 本轮是工具调用轮，先前推送的增量作废，文本已归入思考过程
+          updateLastMessage(convId, { content: '', loading: true })
+        } else if (event.type === 'thinking') {
+          // 模型的中间说明，归入思考过程展示
+          const curMsg = getLastMsg(convId)
+          const steps = [...((curMsg && curMsg.thinkingSteps) || []), { type: 'thinking', content: event.content }]
+          updateLastMessage(convId, { thinkingSteps: steps, loading: true })
         } else if (event.type === 'answer') {
           updateLastMessage(convId, { content: event.content, loading: true })
         } else if (event.type === 'suggested_questions') {
