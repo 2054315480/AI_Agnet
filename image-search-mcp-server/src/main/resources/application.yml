@@ -8,7 +8,7 @@ spring:
 
 # Pexels 图片搜索 API Key
 pexels:
-  api-key: ST9yZXt6T3j1c9XmlU6kOBz3wSbaraItI4B2Ld7OKNLJsZPXunVt0bVQ
+  api-key: PUT_YOUR_IMAGE_SEARCH_API_KEY_HERE
 
 ---
 # SSE 配置

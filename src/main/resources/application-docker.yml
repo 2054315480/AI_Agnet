@@ -10,7 +10,7 @@ spring:
   ai:
     openai:
       api-key: ${AI_API_KEY:PUT_YOUR_DASHSCOPE_API_KEY_HERE}
-      base-url: ${AI_BASE_URL:https://aigw.asiainfo.com}
+      base-url: ${AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
   data:
     redis:
       host: ${REDIS_HOST:redis}

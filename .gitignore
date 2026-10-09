@@ -6,3 +6,23 @@ AI_Agent_Fronted/node_modules/
 
 # Maven wrapper jar (binary)
 .mvn/wrapper/maven-wrapper.jar
+
+# ===== 本地配置与密钥：绝不入库 =====
+src/main/resources/application-local.yml
+.env
+.env.local
+
+# ===== 构建产物 / 依赖 / 本地索引缓存 =====
+AI_Agent_Fronted/dist/
+kb-lucene-index/
+tmp/
+*.log
+
+# ===== 个人与临时文件 =====
+temp_resume.txt
+screenshot_login.png
+AI_Agent_Fronted/temp_*.txt
+演示视频/
+.claude/settings.local.json
+.vscode/
+.idea/

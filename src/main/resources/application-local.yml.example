@@ -1,0 +1,79 @@
+# 配置模板：复制为 application-local.yml 再填真实值
+# （application-local.yml 已在 .gitignore 中，不会被提交）
+
+spring:
+  application:
+    name:AI_Agent
+  datasource:
+      url: jdbc:postgresql://localhost:5432/Love_Agent
+      username: postgres
+      password: PUT_YOUR_DB_PASSWORD_HERE
+      driver-class-name: org.postgresql.Driver
+  ai:
+    openai:
+      # 阿里云百炼 DashScope 兼容端点（本地测试）
+      api-key: PUT_YOUR_DASHSCOPE_API_KEY_HERE
+      base-url: https://dashscope.aliyuncs.com/compatible-mode
+      chat:
+        options:
+          model: qwen-plus
+      # 公司网关切换时用：
+      # api-key: PUT_YOUR_DASHSCOPE_API_KEY_HERE
+      # base-url: https://aigw.asiainfo.com
+      # chat.options.model: aliyun/qwen3.6-plus
+    dashscope:
+      # DashScope 原生 API key（用于向量嵌入 Embedding，不走公司网关）
+      api-key: PUT_YOUR_DASHSCOPE_API_KEY_HERE
+      chat:
+        options:
+          model: aliyun/qwen3.6-plus  # 公司网关默认文本模型
+      # 多模态视觉模型配置（用于图片理解）
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+      image:
+        options:
+          model: qwen-vl-plus  # Qwen2.5-VL 视觉理解模型（推荐测试用，效果好且便宜）
+          # 可选模型：qwen-vl-max（最高质量）、qwen3-vl-plus（最新最强）、qwen3.5-plus
+    mcp:
+      client:
+        enabled: false
+        request-timeout: 60s
+        stdio:
+          servers-configuration: classpath:MCP-servers.json
+
+# 客服知识库向量检索配置
+cs:
+  vector:
+    enabled: true
+
+ai:
+  dashscope:
+    agent-key: PUT_YOUR_AGENT_KEY_HERE
+  # 博查AI搜索配置
+  bocha:
+    api-key: PUT_YOUR_DASHSCOPE_API_KEY_HERE
+    api-url: https://api.bocha.cn/v1/web-search
+
+# 阿里云 OSS 配置
+aliyun:
+  oss:
+    endpoint: ${ALIYUN_OSS_ENDPOINT:}
+    bucket: ${ALIYUN_OSS_BUCKET:}
+    access-key-id: PUT_YOUR_OSS_ACCESS_KEY_ID_HERE
+    access-key-secret: PUT_YOUR_OSS_ACCESS_KEY_SECRET_HERE
+    url-prefix: ${ALIYUN_OSS_URL_PREFIX:}
+
+# HTTP 客户端配置（用于图片下载、网页抓取等网络访问）
+http:
+  client:
+    # 是否启用代理（如果你的网络需要代理访问国外网站，设置为 true）
+    proxy-enabled: false
+    # 代理主机地址（当 proxy-enabled=true 时生效）
+    proxy-host: 127.0.0.1
+    # 代理端口（当 proxy-enabled=true 时生效）
+    proxy-port: 7890
+    # 连接超时时间（毫秒）
+    connect-timeout: 15000
+    # 读取超时时间（毫秒）
+    read-timeout: 30000
