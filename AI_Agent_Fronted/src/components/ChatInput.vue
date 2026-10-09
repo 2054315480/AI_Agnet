@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="chat-input-wrap">
     <!-- 图片预览区域 -->
     <div v-if="imagePreview" class="image-preview-area">
@@ -14,7 +14,7 @@
     </div>
     <div class="input-container">
       <!-- 图片上传按钮 -->
-      <button class="attach-btn" @click="triggerFileInput" :disabled="disabled" title="上传图片">
+      <button class="attach-btn" aria-label="上传图片" @click="triggerFileInput" :disabled="disabled" title="上传图片">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
           <circle cx="8.5" cy="8.5" r="1.5"/>
@@ -33,7 +33,7 @@
         @input="autoResize"
       />
       <button
-        class="send-btn"
+        class="send-btn" aria-label="发送消息"
         :class="{ active: (text.trim() || imageFile) && !disabled }"
         :disabled="disabled || (!text.trim() && !imageFile)"
         @click="handleSend"

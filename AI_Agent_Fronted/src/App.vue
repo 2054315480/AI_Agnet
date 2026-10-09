@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="app-shell">
     <Sidebar v-if="!isLoginPage" :open="sidebarOpen" @toggle="toggleSidebar" @openBatchTest="openBatchTest" />
     <main class="main-area">
@@ -89,7 +89,7 @@ provide('sidebarStore', { toggleSidebar })
 <style scoped>
 .app-shell {
   display: flex;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   background: var(--bg-app);
 }
@@ -107,12 +107,12 @@ provide('sidebarStore', { toggleSidebar })
   position: fixed;
   inset: 0;
   background: var(--bg-overlay);
-  z-index: 40;
+  z-index: var(--z-overlay);
 }
 
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.3s ease;
+  transition: opacity var(--duration-normal) var(--ease-out);
 }
 
 .fade-enter-from,

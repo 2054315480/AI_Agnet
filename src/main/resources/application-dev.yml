@@ -1,6 +1,6 @@
 # ==============================================================
-# 开发环境配置 —— 测试时使用百炼 DashScope（OpenAI 兼容模式端点）
-# 公司网关模式时切换为下方 openai 配置即可
+# 开发环境配置 —— 阿里云百炼 DashScope（OpenAI 兼容模式端点）
+# 切回公司网关时：模型名加 aliyun/ 前缀，如 aliyun/qwen3.6-plus
 # 激活方式：将 application.yml 中的 spring.profiles.active 改为 "local,dev"
 # ==============================================================
 
@@ -15,10 +15,10 @@ spring:
           #   aliyun/glm-5（500 RPM）
           #   aliyun/kimi-k2.5（500 RPM）
           #   aliyun/MiniMax-M2.5（500 RPM，需开启思考模式）
-          model: aliyun/qwen3.6-plus
+          model: qwen-plus
       image:
         options:
-          model: aliyun/qwen3.6-plus
+          model: qwen-vl-plus
     dashscope:
       chat:
         enabled: false  # 通过 OpenAI 兼容端点使用 DashScope，禁用原生 ChatModel

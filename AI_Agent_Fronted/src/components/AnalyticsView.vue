@@ -1,15 +1,15 @@
-<template>
+﻿<template>
   <div class="analytics-page">
     <!-- 顶部栏 -->
     <div class="analytics-header">
-      <button class="back-btn" @click="$router.push('/')">
+      <button class="back-btn" aria-label="返回对话" @click="$router.push('/')">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="15 18 9 12 15 6"/>
         </svg>
         <span>返回对话</span>
       </button>
       <h1 class="page-title">对话分析仪表盘</h1>
-      <button class="export-btn" @click="exportAll">
+      <button class="export-btn" aria-label="导出全部对话CSV" @click="exportAll">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
           <polyline points="7 10 12 15 17 10"/>
@@ -476,7 +476,7 @@ onMounted(loadData)
 <style scoped>
 /* ===== 页面容器 ===== */
 .analytics-page {
-  height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
   padding: 24px 32px;
   background: var(--bg-app);
@@ -529,7 +529,7 @@ onMounted(loadData)
 }
 
 .export-btn:hover {
-  background: var(--accent-primary-hover);
+  background: var(--accent-hover);
 }
 
 /* ===== 加载状态 ===== */
@@ -915,14 +915,14 @@ onMounted(loadData)
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
   padding: 24px;
 }
 
 .modal-content {
   width: 100%;
   max-width: 720px;
-  max-height: 85vh;
+  max-height: 85dvh;
   background: var(--bg-sidebar);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius);

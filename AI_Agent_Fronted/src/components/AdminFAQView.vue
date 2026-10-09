@@ -1,7 +1,7 @@
-<template>
+﻿<template>
   <div class="admin-faq-page">
     <div class="admin-header">
-      <button class="back-btn" @click="$router.push('/')">
+      <button class="back-btn" aria-label="返回对话" @click="$router.push('/')">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="15 18 9 12 15 6"/>
         </svg>
@@ -192,7 +192,7 @@ function formatSize(bytes) {
   max-width: 720px;
   margin: 0 auto;
   padding: 32px 24px;
-  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--bg-chat);
 }
 

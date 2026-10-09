@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="chat-message" :class="[isUser ? 'user' : 'ai', `agent-${agent}`]">
     <!-- Avatar -->
     <div class="avatar" :class="{ 'user-avatar': isUser }">
@@ -274,7 +274,7 @@ const renderedContent = computed(() => {
   display: flex;
   gap: 12px;
   padding: 8px 0;
-  animation: fadeIn 0.3s ease;
+  animation: fadeIn var(--duration-normal) var(--ease-out);
 }
 
 @keyframes fadeIn {
@@ -555,7 +555,7 @@ const renderedContent = computed(() => {
 .thinking-body {
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: max-height var(--duration-normal) cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .thinking-block.expanded .thinking-body {
@@ -577,7 +577,7 @@ const renderedContent = computed(() => {
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border-secondary);
   line-height: 1.5;
-  animation: stepSlideIn 0.3s ease;
+  animation: stepSlideIn var(--duration-normal) var(--ease-out);
 }
 
 .thinking-step:last-child {

@@ -1,9 +1,9 @@
-<template>
+﻿<template>
   <div v-if="visible" class="batch-test-overlay" @click.self="close">
     <div class="batch-test-modal">
       <div class="modal-header">
         <h3>RAG 知识库批量测试</h3>
-        <button class="close-btn" @click="close">&times;</button>
+        <button class="close-btn" aria-label="关闭" @click="close">&times;</button>
       </div>
 
       <!-- File upload area -->
@@ -242,7 +242,7 @@ defineExpose({ open, close })
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
   padding: 20px;
 }
 .batch-test-modal {
@@ -250,7 +250,7 @@ defineExpose({ open, close })
   border-radius: 12px;
   width: 100%;
   max-width: 900px;
-  max-height: 85vh;
+  max-height: 85dvh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 20px 60px rgba(0,0,0,0.2);

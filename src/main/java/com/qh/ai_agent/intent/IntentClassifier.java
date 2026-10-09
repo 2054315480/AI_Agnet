@@ -160,7 +160,16 @@ public class IntentClassifier {
                 "停机保号", "销户", "销号", "补卡",
                 "查询余额", "查流量", "查话费", "话费余额",
                 "国际漫游", "港台", "出国", "境外",
-                "加入购物车", "添加到购物车", "加购物车", "商品详情")) {
+                "加入购物车", "添加到购物车", "加购物车", "商品详情",
+                // 银行/金融领域
+                "信用卡", "银行卡", "储蓄卡", "借记卡", "余额", "转账",
+                "取现", "取款", "额度", "提额", "还款", "利息",
+                "开户", "贷款", "理财", "基金", "定期",
+                "活期", "网银", "手机银行", "网上银行", "柜台",
+                // 电商领域
+                "店铺", "商家", "卖家", "上架", "下架", "库存",
+                "评价", "好评", "差评", "退货地址",
+                "退货", "换货", "退款退货", "仅退款")) {
             return IntentResult.builder().intent(CustomerIntent.PRODUCT_INFO)
                     .confidence(0.88).slots(slots).build();
         }
@@ -173,7 +182,10 @@ public class IntentClassifier {
 
         // 9. 政策/指引查询
         if (containsAny(input, "政策", "规则", "流程", "规定", "条款", "合约", "协议",
-                "指引", "怎么办", "怎么操作", "该如何", "如何办理")) {
+                "指引", "怎么办", "怎么操作", "该如何", "如何办理",
+                "怎么查", "哪里查", "去哪里", "在哪看", "怎么看", "在哪里", "查询方法",
+                "在哪里查", "去哪查", "从哪查", "如何查询", "怎么查询",
+                "收费", "手续费", "年费", "利率", "汇率")) {
             return IntentResult.builder().intent(CustomerIntent.POLICY_QUERY)
                     .confidence(0.85).slots(slots).build();
         }
@@ -214,7 +226,7 @@ public class IntentClassifier {
     /** 构建意图分类 Prompt */
     private String buildClassificationPrompt(String userInput, Map<String, String> preExtracted) {
         StringBuilder sb = new StringBuilder();
-        sb.append("你是一个精准的意图识别系统，服务于中国移动客服场景。请分析用户输入，识别意图并提取关键信息。\n\n");
+        sb.append("你是一个精准的意图识别系统，服务于综合客服场景（电信/银行/电商通用）。请分析用户输入，识别意图并提取关键信息。\n\n");
 
         sb.append("## 可选意图列表及判定规则\n\n");
 
@@ -257,8 +269,10 @@ public class IntentClassifier {
         sb.append("11. CLARIFICATION（用户澄清）— 用户回答系统追问\n");
         sb.append("    示例：用户直接回答了上一轮的追问（如订单号、原因等短文本）\n\n");
 
-        sb.append("12. OUT_OF_SCOPE（超出范围）— 完全与移动客服无关\n");
-        sb.append("    示例：「帮我写代码」「今天股市怎么样」「讲个笑话」「翻译一下」\n\n");
+        sb.append("12. OUT_OF_SCOPE（超出范围）— 完全与电信/银行/电商客服无关\n");
+        sb.append("    示例：「帮我写代码」「讲个笑话」「翻译一下」「推荐电影」\n");
+        sb.append("    注意：银行金融类问题（信用卡、转账、账户、贷款等）属于 PRODUCT_INFO 或 POLICY_QUERY，不是超出范围！\n");
+        sb.append("    注意：店铺商家类问题（开店、商品上架、库存等）属于 PRODUCT_INFO 或 POLICY_QUERY，不是超出范围！\n\n");
 
         if (!preExtracted.isEmpty()) {
             sb.append("## 已通过预筛提取到的信息\n");
@@ -390,7 +404,7 @@ public class IntentClassifier {
     private String buildClassificationPromptWithContext(String userInput, Map<String, String> preExtracted,
                                                          DialogState dialogState) {
         StringBuilder sb = new StringBuilder();
-        sb.append("你是一个精准的意图识别系统，服务于中国移动客服场景。请结合对话上下文分析用户输入。\n\n");
+        sb.append("你是一个精准的意图识别系统，服务于综合客服场景（电信/银行/电商通用）。请结合对话上下文分析用户输入。\n\n");
 
         sb.append("## 对话上下文\n");
         sb.append("- 当前意图：").append(dialogState.getCurrentIntent().name())

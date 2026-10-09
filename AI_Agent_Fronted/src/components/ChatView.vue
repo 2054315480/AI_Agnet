@@ -1,7 +1,7 @@
-<template>
+﻿<template>
   <div class="chat-view">
     <!-- Mobile FAB toggle -->
-    <button class="mobile-fab" @click="sidebarStore.toggleSidebar()">
+    <button class="mobile-fab" aria-label="打开菜单" @click="sidebarStore.toggleSidebar()">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <line x1="3" y1="12" x2="21" y2="12"/>
         <line x1="3" y1="6" x2="21" y2="6"/>
@@ -160,7 +160,7 @@ onMounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100dvh;
   background: var(--bg-chat);
   overflow: hidden;
   position: relative;
@@ -180,7 +180,7 @@ onMounted(() => {
   color: var(--text-secondary);
   align-items: center;
   justify-content: center;
-  z-index: 30;
+  z-index: var(--z-fab);
   box-shadow: var(--shadow-md);
   transition: var(--transition);
 }

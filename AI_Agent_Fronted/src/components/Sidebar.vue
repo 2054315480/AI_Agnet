@@ -1,8 +1,8 @@
-<template>
+﻿<template>
   <aside class="sidebar" :class="{ collapsed: !open }">
     <!-- Top: toggle + brand -->
     <div class="sidebar-top">
-      <button class="sidebar-toggle" @click="$emit('toggle')">
+      <button class="sidebar-toggle" aria-label="切换侧边栏" @click="$emit('toggle')">
         <svg v-if="open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="3" y1="12" x2="21" y2="12"/>
           <line x1="3" y1="6" x2="21" y2="6"/>
@@ -180,15 +180,15 @@ function handleLogout() {
 <style scoped>
 .sidebar {
   width: var(--sidebar-width);
-  height: 100vh;
+  height: 100dvh;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-secondary);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width var(--duration-normal) var(--ease-in-out);
   overflow: hidden;
-  z-index: 50;
+  z-index: var(--z-sidebar);
 }
 
 .sidebar.collapsed {
@@ -431,7 +431,7 @@ function handleLogout() {
     bottom: 0;
     width: var(--sidebar-width);
     transform: translateX(-100%);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform var(--duration-normal) var(--ease-in-out);
     box-shadow: none;
   }
 

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="login-page">
     <!-- 左侧：品牌展示区 -->
     <div class="login-brand">
@@ -120,7 +120,7 @@ async function handleSubmit() {
 <style scoped>
 .login-page {
   display: flex;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -333,7 +333,7 @@ async function handleSubmit() {
 }
 
 .submit-btn:hover:not(:disabled) {
-  background: var(--accent-primary-hover);
+  background: var(--accent-hover);
   transform: translateY(-1px);
 }
 
@@ -397,7 +397,7 @@ async function handleSubmit() {
 }
 
 .switch-btn:hover {
-  color: var(--accent-primary-hover);
+  color: var(--accent-hover);
   text-decoration: underline;
 }
 
