@@ -3,6 +3,8 @@ package com.qh.ai_agent.knowledge.retriever;
 import com.qh.ai_agent.knowledge.parser.KbEntry;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.document.*;
 import org.apache.lucene.index.*;
 import org.apache.lucene.queryparser.classic.QueryParser;
@@ -29,6 +31,16 @@ public class Bm25Retriever {
     private final JiebaAnalyzer analyzer;
     private Directory indexDir;
     private boolean indexReady = false;
+
+    /**
+     * 最少命中词比例（0~1）。
+     * 原实现用 QueryParser 的默认 OR 语义：命中任意一个词就算一条，
+     * 于是"你们卖不卖挖掘机"这类无关问题也能召回，无法判定"知识库没命中"。
+     * 改为 BooleanQuery + minimumNumberShouldMatch，要求命中足够比例的查询词。
+     * 设为 0 可退回旧的 OR 行为。
+     */
+    @org.springframework.beans.factory.annotation.Value("${cs.retrieval.bm25-min-match-ratio:0.34}")
+    private double minMatchRatio;
 
     public Bm25Retriever() {
         this.analyzer = new JiebaAnalyzer();
@@ -98,9 +110,7 @@ public class Bm25Retriever {
         try (DirectoryReader reader = DirectoryReader.open(indexDir)) {
             IndexSearcher searcher = new IndexSearcher(reader);
 
-            // 在 question 字段上搜索，Analyzer 自动处理中文分词
-            QueryParser parser = new QueryParser("question", analyzer);
-            Query luceneQuery = parser.parse(escapeQuery(query));
+            Query luceneQuery = buildQuery(query);
 
             TopDocs topDocs = searcher.search(luceneQuery, topK);
             // 归一化 BM25 分数
@@ -134,6 +144,42 @@ public class Bm25Retriever {
      */
     public boolean isIndexReady() {
         return indexReady;
+    }
+
+    /**
+     * 构造查询：用"最少命中词数"约束，抑制 OR 语义带来的弱相关召回。
+     */
+    private Query buildQuery(String query) throws Exception {
+        List<String> tokens = tokenize(query);
+        if (tokens.isEmpty() || minMatchRatio <= 0) {
+            QueryParser parser = new QueryParser("question", analyzer);
+            return parser.parse(escapeQuery(query));
+        }
+        BooleanQuery.Builder builder = new BooleanQuery.Builder();
+        for (String token : tokens) {
+            builder.add(new TermQuery(new Term("question", token)), BooleanClause.Occur.SHOULD);
+        }
+        int minShouldMatch = Math.max(1, (int) Math.ceil(tokens.size() * minMatchRatio));
+        builder.setMinimumNumberShouldMatch(minShouldMatch);
+        log.debug("[Bm25Retriever] query='{}' 分词数={} 最少命中词数={}", query, tokens.size(), minShouldMatch);
+        return builder.build();
+    }
+
+    /** 用同一个分析器给查询分词 */
+    private List<String> tokenize(String text) throws IOException {
+        List<String> tokens = new ArrayList<>();
+        try (TokenStream ts = analyzer.tokenStream("question", text)) {
+            CharTermAttribute term = ts.addAttribute(CharTermAttribute.class);
+            ts.reset();
+            while (ts.incrementToken()) {
+                String t = term.toString();
+                if (t != null && !t.isBlank()) {
+                    tokens.add(t);
+                }
+            }
+            ts.end();
+        }
+        return tokens;
     }
 
     /**

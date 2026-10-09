@@ -77,6 +77,18 @@ knife4j:
 cs:
   faq:
     data-dir: ./data/faq
+  # 向量检索相关性下限（0~1，越大越严格）；低于该值视为知识库未命中，触发槽位追问/澄清
+  # 实测(774 条语料 + text-embedding-v2)：0.35 挡不住无关问题，0.5 可以；偏召回可调回 0.35
+  vector:
+    similarity-threshold: 0.5
+  # BM25 最少命中词比例（0~1）：抑制 OR 语义的弱相关召回，0 = 退回旧行为
+  retrieval:
+    bm25-min-match-ratio: 0.34
+  # 会话状态存储：memory = 单实例内存（默认）；redis = 多实例共享 + TTL
+  session:
+    store: memory
+    ttl-minutes: 30
+    max-sessions: 5000
 
 # AI Agent 配置
 ai:
