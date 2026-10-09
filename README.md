@@ -139,6 +139,29 @@ AI_Agent/
 - **Maven 3.8+**
 - **DashScope API Key**（测试用）或公司 AI 网关访问权限
 
+### 0. 克隆后的第一步：准备本地配置（必做）
+
+本仓库**不包含** `src/main/resources/application-local.yml`。它保存的是本机私有配置（数据库口令、API Key），
+已在 `.gitignore` 中，不会被提交；因此刚 clone 下来时它并不存在，**不准备这个文件项目无法启动**。
+
+```bash
+# Linux / macOS / Git Bash
+cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
+
+# Windows PowerShell
+Copy-Item src/main/resources/application-local.yml.example src/main/resources/application-local.yml
+```
+
+然后编辑 `application-local.yml`，至少填好这两组值：
+
+| 配置项 | 说明 |
+| --- | --- |
+| `spring.datasource.url` / `username` / `password` | 本机 PostgreSQL 连接信息 |
+| `spring.ai.openai.api-key`、`spring.ai.dashscope.api-key` | DashScope API Key（**两处都要填**） |
+
+> 填好真实值的 `application-local.yml` 只保留在本地，不要提交（`.gitignore` 已忽略它）。
+> OSS / MNS / SMQ 等云端配置可以留空，相关功能会自动走降级逻辑（见「缺少配置时的行为」）。
+
 ### 1. 数据库准备
 
 ```sql
@@ -148,7 +171,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ### 2. API 配置
 
-编辑 `src/main/resources/application-local.yml`：
+编辑上一步复制出来的 `src/main/resources/application-local.yml`：
 
 **测试模式（DashScope 兼容端点，无需 VPN）**：
 ```yaml
@@ -156,7 +179,7 @@ spring:
   ai:
     openai:
       api-key: sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-      base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      base-url: https://dashscope.aliyuncs.com/compatible-mode
     dashscope:
       api-key: sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
