@@ -11,6 +11,7 @@ import com.qh.ai_agent.intent.model.CustomerIntent;
 import com.qh.ai_agent.intent.model.IntentResult;
 import com.qh.ai_agent.intent.model.SlotDefinition;
 import com.qh.ai_agent.intent.model.SlotExtractionResult;
+import com.qh.ai_agent.service.ChatGuardService;
 import com.qh.ai_agent.service.PromptTemplateService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -45,6 +46,22 @@ public class CustomerServiceAgent extends ToolCallAgent {
     private DialogState dialogState;
     /** 当前用户原始问题（用于注入搜索指令） */
     private String currentUserQuery;
+
+    /**
+     * 输入/输出护栏（违禁词、敏感信息脱敏）。
+     * 用字段注入并允许为 null：单测手工 new 时不传，护栏自动跳过。
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ChatGuardService chatGuardService;
+
+    /** 每轮最多携带多少轮历史给大模型 */
+    private static final int MAX_HISTORY_TURNS = 6;
+
+    /** 历史注入标记，避免同一请求重复注入 */
+    private static final String HISTORY_MARK = "【历史对话】";
+
+    /** 本次请求是否已记录过一轮历史 */
+    private boolean historyRecordedThisTurn = false;
 
     private static final double MIN_CONFIDENCE = 0.5;
     /** 转人工阈值：连续超范围轮数 */
@@ -103,11 +120,33 @@ public class CustomerServiceAgent extends ToolCallAgent {
             if (lastUserInput == null || lastUserInput.isBlank()) {
                 return "无用户输入";
             }
-            this.currentUserQuery = lastUserInput;
+            // 只在本次请求的第一步记录用户原始问题：
+            // step() 每轮 ReAct 都会重新读最后一条 UserMessage，而 think() 会追加 nextStepPrompt，
+            // 若不限制，多轮之后 currentUserQuery 会被 nextStepPrompt 覆盖（历史记录写错）。
+            if (getCurrentStep() <= 1) {
+                this.currentUserQuery = lastUserInput;
+            }
             // 会话已关闭时重新初始化状态，避免复用已结束的会话
             if (dialogState != null && dialogState.getDialogPhase() == DialogPhase.CLOSED) {
                 log.info("[StateMachine] 会话 {} 处于 CLOSED，重新初始化状态", sessionId);
                 dialogState = dialogStateManager.resetSession(sessionId);
+            }
+
+            // === 输入侧护栏 + 跨轮上下文：只在本次请求的第一步执行一次 ===
+            if (getCurrentStep() <= 1) {
+                historyRecordedThisTurn = false;
+                if (chatGuardService != null) {
+                    ChatGuardService.GuardResult guard = chatGuardService.guardInput(lastUserInput);
+                    if (!guard.allowed()) {
+                        log.warn("[ChatGuard] 会话 {} 输入被拦截: {}", sessionId, guard.reason());
+                        sendAnswerAndSaveContext(guard.text());
+                        setState(AgentState.FINISHED);
+                        return "输入被拦截";
+                    }
+                    lastUserInput = guard.text();
+                    this.currentUserQuery = lastUserInput;
+                }
+                injectRecentHistory();
             }
 
             // 后续轮次直接走 think→act（意图识别仅在首轮执行）
@@ -210,6 +249,9 @@ public class CustomerServiceAgent extends ToolCallAgent {
 
             // 更新对话状态（由 DialogState 根据置信度与槽位完整度决定进入 CLARIFYING 或 SLOT_FILLING 或 RETRIEVING）
             dialogState = dialogStateManager.updateFromIntentResult(sessionId, intentResult);
+            // 状态机基于"意图 + 槽位完整度 + 置信度"给出的阶段：先记下来，后面进入 RETRIEVING 也不会丢掉这个决策
+            DialogPhase phaseFromIntent = dialogState.getDialogPhase();
+            log.info("[StateMachine] 会话 {} 意图={} 状态机阶段={}", sessionId, intentResult.getIntent(), phaseFromIntent);
             sendSseEvent("intent", formatIntentEvent(intentResult));
 
             // === 1. 转人工判定：用户明确要求 / 连续超范围 / 轮次过长 / 状态机已标记 ===
@@ -242,11 +284,14 @@ public class CustomerServiceAgent extends ToolCallAgent {
             // 命中判定只看是否真的检索到档案，不用分数阈值，避免 RRF 低分量级被误判为空
             boolean knowledgeHit = hasKnowledgeResults(actResult);
 
-            // === 4. 知识库没命中：先追问缺失槽位，再按低置信度澄清，状态机真正生效 ===
+            // === 4. 知识库没命中：按状态机给出的阶段决策（SLOT_FILLING / CLARIFYING），不再重新猜 ===
             if (!knowledgeHit) {
                 List<SlotDefinition> slotDefs = intentConfig.getSlotDefinitions(intentResult.getIntent().name());
                 List<SlotDefinition> missing = dialogState.getMissingSlots(slotDefs);
-                if (!missing.isEmpty()) {
+                log.info("[StateMachine] 会话 {} 知识库未命中，按状态机阶段 {} 决策（缺槽位 {} 个）",
+                        sessionId, phaseFromIntent, missing.size());
+                // 状态机判定缺槽位：追问缺失槽位
+                if (phaseFromIntent == DialogPhase.SLOT_FILLING && !missing.isEmpty()) {
                     dialogState.setDialogPhase(DialogPhase.SLOT_FILLING);
                     dialogState.updatePendingSlots(slotDefs);
                     dialogStateManager.updateState(sessionId, dialogState);
@@ -255,7 +300,8 @@ public class CustomerServiceAgent extends ToolCallAgent {
                     setState(AgentState.FINISHED);
                     return "槽位填充 - 追问：" + question;
                 }
-                if (needsClarification(intentResult)) {
+                // 状态机判定需要澄清（LLM needsClarification 或置信度不足）：走澄清
+                if (phaseFromIntent == DialogPhase.CLARIFYING || needsClarification(intentResult)) {
                     dialogState.setDialogPhase(DialogPhase.CLARIFYING);
                     dialogStateManager.updateState(sessionId, dialogState);
                     String question = buildClarification(intentResult);
@@ -580,11 +626,13 @@ public class CustomerServiceAgent extends ToolCallAgent {
      * 同时将回复加入 messagesList，确保持久化能读取到
      */
     private void sendAnswerAndSaveContext(String content) {
-        sendSseEvent("answer", content);
+        String safe = guardOutput(content);
+        sendSseEvent("answer", safe);
         // 加入 messagesList，确保持久化能读取到 assistant 回复
-        getMessagesList().add(new AssistantMessage(content));
+        getMessagesList().add(new AssistantMessage(safe));
         if (dialogState != null) {
-            dialogState.setLastBotMessage(content);
+            dialogState.setLastBotMessage(safe);
+            appendTurnToHistory(safe);
             dialogStateManager.updateState(sessionId, dialogState);
         }
     }
@@ -647,10 +695,12 @@ public class CustomerServiceAgent extends ToolCallAgent {
 
     /** 发送澄清/追问事件并保存上下文，与 answer 区分，前端据此渲染澄清卡片 */
     private void sendClarificationAndSaveContext(String content) {
-        sendSseEvent("clarification", content);
-        getMessagesList().add(new AssistantMessage(content));
+        String safe = guardOutput(content);
+        sendSseEvent("clarification", safe);
+        getMessagesList().add(new AssistantMessage(safe));
         if (dialogState != null) {
-            dialogState.setLastBotMessage(content);
+            dialogState.setLastBotMessage(safe);
+            appendTurnToHistory(safe);
             dialogStateManager.updateState(sessionId, dialogState);
         }
     }
@@ -658,13 +708,61 @@ public class CustomerServiceAgent extends ToolCallAgent {
     /** 最终答案产出后同步对话状态：阶段置 ANSWERING，记录上一轮回复 */
     @Override
     protected void onFinalAnswer(String answerText) {
+        String safe = guardOutput(answerText);
+        // 流式增量已经把原文推给前端了；这里用脱敏后的完整文本再收口一次（前端是覆盖式渲染）
+        if (safe != null && !safe.equals(answerText)) {
+            sendSseEvent("answer", safe);
+            log.info("[ChatGuard] 输出已脱敏后重新收口");
+        }
         if (dialogState != null && dialogState.getDialogPhase() != DialogPhase.HANDOFF) {
             dialogState.setDialogPhase(DialogPhase.ANSWERING);
-            if (answerText != null) {
-                dialogState.setLastBotMessage(answerText);
+            if (safe != null) {
+                dialogState.setLastBotMessage(safe);
             }
+            appendTurnToHistory(safe);
             dialogStateManager.updateState(sessionId, dialogState);
         }
+    }
+
+    /** 输出侧护栏：违禁词过滤 + 敏感信息脱敏 */
+    private String guardOutput(String text) {
+        if (chatGuardService == null || text == null) {
+            return text;
+        }
+        return chatGuardService.guardOutput(text);
+    }
+
+    /** 把本轮问题与助手回复写入跨轮历史（一次请求只记一轮） */
+    private void appendTurnToHistory(String assistantText) {
+        if (historyRecordedThisTurn || dialogState == null) {
+            return;
+        }
+        historyRecordedThisTurn = true;
+        dialogState.appendHistory(currentUserQuery, assistantText, MAX_HISTORY_TURNS);
+        log.info("[History] 会话 {} 记录一轮历史，当前 {} 条", sessionId, dialogState.getRecentHistory().size());
+    }
+
+    /** 把最近几轮原文注入消息列表，让大模型看到完整多轮上下文（同一请求只注入一次） */
+    private void injectRecentHistory() {
+        if (dialogState == null || dialogState.getRecentHistory().isEmpty()) {
+            return;
+        }
+        for (Message m : getMessagesList()) {
+            if (m.getText() != null && m.getText().contains(HISTORY_MARK)) {
+                return;
+            }
+        }
+        List<Message> injected = new ArrayList<>();
+        injected.add(new SystemMessage(HISTORY_MARK + "以下是本次会话最近几轮对话，仅用于理解上下文，不要复述。"));
+        for (DialogState.ChatTurn turn : dialogState.getRecentHistory()) {
+            if ("user".equals(turn.getRole())) {
+                injected.add(new UserMessage(turn.getContent()));
+            } else {
+                injected.add(new AssistantMessage(turn.getContent()));
+            }
+        }
+        getMessagesList().addAll(0, injected);
+        log.info("[History] 会话 {} 注入 {} 条历史消息", sessionId, injected.size());
     }
 
     public String getSessionId() { return sessionId; }

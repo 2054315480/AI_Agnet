@@ -175,6 +175,31 @@ class CustomerServiceStreamingFlowTest {
     }
 
     /**
+     * 回归用例：跨轮历史里记录的必须是用户原始问题，不能被 think() 追加的 nextStepPrompt 覆盖。
+     */
+    @Test
+    void historyShouldRecordOriginalUserQuestion() {
+        IntentConfig config = config();
+        DialogStateManager manager = new DialogStateManager(config);
+        ChatModel model = mock(ChatModel.class);
+        when(model.stream(any(Prompt.class))).thenReturn(
+                Flux.just(toolCallChunk("fakeSearch", "{\"query\":\"退货政策\"}")),
+                Flux.just(textChunk("7天无理由退货")));
+
+        CapturingAgent agent = newAgent(model, classifierReturning(intent(CustomerIntent.POLICY_QUERY, 0.9)),
+                manager, config, KB_HIT);
+        prepare(agent, "flow-history", "退货政策是什么");
+        agent.step();
+        agent.setCurrentStep(2);
+        agent.step();
+
+        var history = manager.getState("flow-history").getRecentHistory();
+        assertFalse(history.isEmpty(), "应当记录了跨轮历史");
+        assertEquals("user", history.get(0).getRole());
+        assertEquals("退货政策是什么", history.get(0).getContent(), "历史里必须是用户原始问题");
+    }
+
+    /**
      * 工具调用轮：模型先输出中间说明再决定调工具，这段文本必须被回撤并归入思考过程。
      */
     @Test

@@ -38,14 +38,25 @@ public class IntentClassifier {
     /** 正则预筛：手机号 */
     private static final Pattern PHONE_PATTERN = Pattern.compile("1[3-9]\\d{9}");
 
-    /** 人工请求关键词（扩展版） */
+    /**
+     * 显式的人工请求关键词：命中即转人工。
+     * 注意：这里不能再放单独的"客服"，否则"你们客服电话是多少"会被误判成转人工。
+     */
     private static final List<String> HUMAN_REQUEST_KEYWORDS = List.of(
-            "人工", "转人工", "人工客服", "真人", "人工服务", "客服",
-            "找人工", "我要人工", "联系人工", "接人工", "要人工",
+            "转人工", "人工客服", "人工服务", "找人工", "我要人工", "联系人工", "接人工", "要人工",
             "不是机器人", "不要机器人", "不要AI", "别用机器人",
             "活人", "真正的人", "真人客服", "人工接待",
             "帮我转", "转接", "转客服", "换人", "换个客服",
             "跟人说话", "让人来", "不想跟机器", "跟真人"
+    );
+
+    /** 弱关键词：只有不在"客服电话/智能客服/人工智能/人工费"这类语境下才算转人工 */
+    private static final List<String> HUMAN_REQUEST_WEAK_KEYWORDS = List.of("人工", "真人", "客服");
+
+    /** 这些语境里出现"人工/客服"并不代表用户要转人工 */
+    private static final List<String> NON_HANDOFF_CONTEXT_KEYWORDS = List.of(
+            "客服电话", "客服热线", "客服中心", "客服地址", "客服邮箱", "客服工作时间",
+            "智能客服", "人工智能", "人工费", "人工成本", "人工智障"
     );
 
     /**
@@ -106,15 +117,19 @@ public class IntentClassifier {
      * 关键词预筛：覆盖所有主要意图，高置信度直接返回，不走 LLM
      * 按优先级从高到低排列（转人工 > 退款 > 投诉 > ... > 闲聊）
      */
-    private IntentResult tryKeywordClassification(String input, Map<String, String> existingSlots) {
+    /** 包内可见：便于单测直接验证关键词预筛，不依赖大模型 */
+    IntentResult tryKeywordClassification(String input, Map<String, String> existingSlots) {
         Map<String, String> slots = existingSlots != null ? new HashMap<>(existingSlots) : new HashMap<>();
 
-        // 1. 转人工
-        for (String kw : HUMAN_REQUEST_KEYWORDS) {
-            if (input.contains(kw)) {
-                return IntentResult.builder().intent(CustomerIntent.REQUEST_HUMAN)
-                        .confidence(0.95).slots(slots).needsClarification(false).build();
-            }
+        // 1. 转人工：先看显式表达，再看弱关键词（弱关键词要排除"客服电话/人工智能"等语境）
+        if (containsAny(input, HUMAN_REQUEST_KEYWORDS.toArray(new String[0]))) {
+            return IntentResult.builder().intent(CustomerIntent.REQUEST_HUMAN)
+                    .confidence(0.95).slots(slots).needsClarification(false).build();
+        }
+        if (!containsAny(input, NON_HANDOFF_CONTEXT_KEYWORDS.toArray(new String[0]))
+                && containsAny(input, HUMAN_REQUEST_WEAK_KEYWORDS.toArray(new String[0]))) {
+            return IntentResult.builder().intent(CustomerIntent.REQUEST_HUMAN)
+                    .confidence(0.90).slots(slots).needsClarification(false).build();
         }
 
         // 2. 退款/退钱

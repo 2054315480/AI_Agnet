@@ -15,6 +15,7 @@ src/main/resources/application-local.yml
 # ===== 构建产物 / 依赖 / 本地索引缓存 =====
 AI_Agent_Fronted/dist/
 kb-lucene-index/
+kb-lucene-faq-index/
 tmp/
 *.log
 

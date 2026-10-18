@@ -84,6 +84,23 @@ cs:
   # BM25 最少命中词比例（0~1）：抑制 OR 语义的弱相关召回，0 = 退回旧行为
   retrieval:
     bm25-min-match-ratio: 0.34
+    # RRF 融合的 k 值（1/(k+rank)），与候选池大小匹配；默认 10
+    rrf-k: 10
+    # 元数据过滤：按 doc_type 过滤向量检索结果，空 = 不过滤（例：COMPETITION_KB）
+    filter-doc-type: ""
+    # BM25 主索引目录
+    bm25-index-dir: ./kb-lucene-index
+  # FAQ 独立 Lucene 索引（Tier1 精确匹配）
+  faq:
+    lucene-enabled: true
+    lucene-index-dir: ./kb-lucene-faq-index
+    lucene-min-match-ratio: 0.5
+    lucene-top-k: 5
+  # 知识库重建 / 增量入库
+  reindex:
+    auto-on-upload: true
+    embed-batch-size: 20
+    vector-table: cs_vector_store
   # 会话状态存储：memory = 单实例内存（默认）；redis = 多实例共享 + TTL
   session:
     store: memory

@@ -64,6 +64,37 @@ public class DialogState {
     @Builder.Default
     private boolean handoffTriggered = false;
 
+    /** 最近若干轮对话原文（跨请求保留，用于给大模型提供完整多轮上下文） */
+    @Builder.Default
+    private List<ChatTurn> recentHistory = new ArrayList<>();
+
+    /** 单轮对话记录 */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ChatTurn {
+        /** user / assistant */
+        private String role;
+        private String content;
+    }
+
+    /**
+     * 追加一轮对话，并只保留最近 maxTurns 轮（2*maxTurns 条）。
+     */
+    public void appendHistory(String userText, String assistantText, int maxTurns) {
+        if (userText != null && !userText.isBlank()) {
+            recentHistory.add(new ChatTurn("user", userText));
+        }
+        if (assistantText != null && !assistantText.isBlank()) {
+            recentHistory.add(new ChatTurn("assistant", assistantText));
+        }
+        int maxEntries = Math.max(2, maxTurns * 2);
+        while (recentHistory.size() > maxEntries) {
+            recentHistory.remove(0);
+        }
+    }
+
     /**
      * 从意图识别结果更新状态
      */
