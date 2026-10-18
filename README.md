@@ -4,6 +4,18 @@
 
 ---
 
+## 界面预览
+
+| 对话（深色） | 对话（浅色） |
+| --- | --- |
+| ![chat-dark](docs/screenshots/01-chat-dark.png) | ![chat-light](docs/screenshots/02-chat-light.png) |
+
+| 登录 | 对话分析 | FAQ 管理 |
+| --- | --- | --- |
+| ![login](docs/screenshots/00-login-dark.png) | ![analytics](docs/screenshots/03-analytics-dark.png) | ![faq](docs/screenshots/04-faq-admin-dark.png) |
+
+设计与改造说明见 [docs/UI-设计说明.md](docs/UI-设计说明.md)。
+
 ## 竞赛功能快速入口
 
 ### 批量评测
