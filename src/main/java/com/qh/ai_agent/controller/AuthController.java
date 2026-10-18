@@ -35,7 +35,8 @@ public class AuthController {
         }
         try {
             User user = userService.register(request.getUsername(), request.getPassword());
-            String token = jwtUtil.generateToken(user.getId(), user.getUsername());
+            // token 内写入角色 claim，响应结构保持不变
+            String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole());
             return ResponseEntity.ok(Map.of(
                     "token", token,
                     "user", sanitizeUser(user)
@@ -49,7 +50,8 @@ public class AuthController {
     public ResponseEntity<?> login(@RequestBody RegisterRequest request) {
         try {
             User user = userService.login(request.getUsername(), request.getPassword());
-            String token = jwtUtil.generateToken(user.getId(), user.getUsername());
+            // token 内写入角色 claim，响应结构保持不变
+            String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole());
             return ResponseEntity.ok(Map.of(
                     "token", token,
                     "user", sanitizeUser(user)
@@ -61,7 +63,7 @@ public class AuthController {
 
     @GetMapping("/me")
     public ResponseEntity<?> me(@AuthenticationPrincipal User user) {
-        // 回退：如果 @AuthenticationPrincipal 未解析，尝试直接从 SecurityContext 获取
+        // 兜底：如果 @AuthenticationPrincipal 未解析，尝试直接从 SecurityContext 获取
         if (user == null) {
             var auth = SecurityContextHolder.getContext().getAuthentication();
             if (auth != null && auth.getPrincipal() instanceof User u) {
@@ -76,6 +78,9 @@ public class AuthController {
         return ResponseEntity.ok(sanitizeUser(user));
     }
 
+    /**
+     * 不返回密码等敏感字段；字段结构与前端现有契约一致，不新增 role。
+     */
     private Map<String, Object> sanitizeUser(User user) {
         return Map.of(
                 "id", user.getId(),

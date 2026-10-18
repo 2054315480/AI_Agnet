@@ -10,6 +10,10 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
+/**
+ * JWT 工具类：生成、解析和校验 token。
+ * 角色写入 role claim，供 JwtAuthenticationFilter 构造 authorities。
+ */
 @Component
 public class JwtUtil {
 
@@ -24,46 +28,61 @@ public class JwtUtil {
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
-    public String generateToken(Long userId, String username) {
+    /**
+     * 生成带角色 claim 的 token。
+     */
+    public String generateToken(Long userId, String username, String role) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expiration);
+        String roleClaim = (role == null || role.isBlank()) ? "user" : role.trim();
 
         return Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim("username", username)
+                .claim("role", roleClaim)
                 .issuedAt(now)
                 .expiration(expiryDate)
                 .signWith(getSigningKey())
                 .compact();
     }
 
+    /**
+     * 兼容旧调用：未显式传角色时按普通用户签发。
+     */
+    public String generateToken(Long userId, String username) {
+        return generateToken(userId, username, "user");
+    }
+
     public Long getUserIdFromToken(String token) {
-        Claims claims = Jwts.parser()
-                .verifyWith(getSigningKey())
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
+        Claims claims = parseClaims(token);
         return Long.parseLong(claims.getSubject());
     }
 
     public String getUsernameFromToken(String token) {
-        Claims claims = Jwts.parser()
-                .verifyWith(getSigningKey())
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
-        return claims.get("username", String.class);
+        return parseClaims(token).get("username", String.class);
+    }
+
+    /**
+     * 读取角色 claim；历史 token 没有 role 时返回 null，由过滤器回退到数据库角色。
+     */
+    public String getRoleFromToken(String token) {
+        return parseClaims(token).get("role", String.class);
     }
 
     public boolean validateToken(String token) {
         try {
-            Jwts.parser()
-                    .verifyWith(getSigningKey())
-                    .build()
-                    .parseSignedClaims(token);
+            parseClaims(token);
             return true;
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private Claims parseClaims(String token) {
+        return Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
     }
 }
