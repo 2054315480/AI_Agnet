@@ -1,11 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#667eea"/>
-      <stop offset="100%" style="stop-color:#764ba2"/>
-    </linearGradient>
-  </defs>
-  <rect width="100" height="100" rx="20" fill="url(#g)"/>
-  <text x="50" y="62" font-size="40" font-weight="bold" fill="white" text-anchor="middle" font-family="Arial">AI</text>
-  <circle cx="75" cy="25" r="8" fill="#ff6b9d"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- 客服工作台：墨底 + 青瓷线性对话框，与侧边栏品牌标识一致 -->
+  <rect width="100" height="100" rx="22" fill="#121715"/>
+  <rect x="1.5" y="1.5" width="97" height="97" rx="20.5" fill="none"
+        stroke="#E9E6DF" stroke-opacity="0.10" stroke-width="1.5"/>
+
+  <!-- 对话气泡 -->
+  <path d="M30 26h40a10 10 0 0 1 10 10v18a10 10 0 0 1-10 10H44L32 74V64h-2a10 10 0 0 1-10-10V36a10 10 0 0 1 10-10z"
+        fill="none" stroke="#7FB3A6" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- 两行文字 -->
+  <line x1="34" y1="41" x2="66" y2="41" stroke="#7FB3A6" stroke-width="6" stroke-linecap="round"/>
+  <line x1="34" y1="53" x2="55" y2="53" stroke="#C2A36B" stroke-width="6" stroke-linecap="round"/>
 </svg>
