@@ -95,20 +95,29 @@
         </div>
       </div>
 
-      <!-- 意图分布图 -->
+      <!-- 图表统计：占比 + 意图一行，会话趋势占整行 -->
       <div class="section-card">
         <h2 class="section-title">意图分布统计</h2>
-        <div v-if="intentDist.length === 0" class="empty-hint">暂无意图分布数据</div>
-        <div v-else class="intent-chart">
-          <div v-for="item in intentDist" :key="item.intent" class="intent-bar-row">
-            <span class="intent-label">{{ formatIntent(item.intent) }}</span>
-            <div class="intent-bar-track">
-              <div
-                class="intent-bar-fill"
-                :style="{ width: getBarWidth(item.count) + '%', background: getBarColor(item.intent) }"
-              ></div>
-            </div>
-            <span class="intent-count">{{ item.count }}</span>
+        <div class="charts-grid">
+          <div class="chart-panel chart-panel-ratio">
+            <h3 class="chart-subtitle">转人工与澄清占比</h3>
+            <div v-if="ratioChartError" class="chart-message chart-message-error">数据加载失败</div>
+            <div v-else-if="ratioTotal === 0" class="chart-message">暂无占比数据</div>
+            <BaseChart v-else :option="ratioChartOption" height="280px" />
+          </div>
+
+          <div class="chart-panel chart-panel-intent">
+            <h3 class="chart-subtitle">意图分布</h3>
+            <div v-if="intentChartError" class="chart-message chart-message-error">数据加载失败</div>
+            <div v-else-if="intentDist.length === 0" class="chart-message">暂无意图分布数据</div>
+            <BaseChart v-else :option="intentChartOption" :height="intentChartHeight" />
+          </div>
+
+          <div class="chart-panel chart-panel-trend">
+            <h3 class="chart-subtitle">会话趋势</h3>
+            <div v-if="trendChartError" class="chart-message chart-message-error">数据加载失败</div>
+            <div v-else-if="trendPoints.length === 0" class="chart-message">暂无会话趋势数据</div>
+            <BaseChart v-else :option="trendChartOption" height="260px" />
           </div>
         </div>
       </div>
@@ -266,12 +275,19 @@ import {
   getExportAllCsvUrl,
   getExportSessionCsvUrl
 } from '../api/analytics.js'
+import BaseChart from './charts/BaseChart.vue'
 
 /* ---- 全局状态 ---- */
 const loading = ref(true)
 const sessionsLoading = ref(false)
 const overview = ref({})
 const intentDist = ref([])
+
+/* ---- 图表独立状态：任一接口失败只降级对应图表 ---- */
+const intentChartError = ref(false)
+const trendChartError = ref(false)
+const ratioChartError = ref(false)
+const trendPoints = ref([])
 
 /* ---- 分页/排序/筛选查询状态 ---- */
 const query = ref({
@@ -314,21 +330,246 @@ function formatIntent(intent) {
   return intentNames[intent] || intent
 }
 
-/* ---- 柱状图颜色 ---- */
-const barColors = [
-  'var(--accent)', 'var(--accent-love)', 'var(--success)',
-  'var(--warning)', 'var(--danger)', 'var(--text-tertiary)'
+/* ---- 图表语义色标记：由 BaseChart 读取最新 CSS tokens 后解析 ---- */
+const chartPalette = [
+  'token:accent',
+  'token:accent-love',
+  'token:success',
+  'token:warning',
+  'token:danger',
+  'token:text-tertiary'
 ]
-
-function getBarColor(intent) {
-  const allIntents = intentDist.value.map(i => i.intent)
-  const idx = allIntents.indexOf(intent)
-  return barColors[idx % barColors.length]
+/** 意图条形配色：语义色优先，其余用青瓷色按排名递减透明度，避免彩虹配色 */
+function intentBarColor(intent, index) {
+  if (intent === 'REQUEST_HUMAN') return 'token:accent-love'
+  if (intent === 'COMPLAINT') return 'token:danger'
+  if (intent === 'OUT_OF_SCOPE') return 'token:text-tertiary'
+  if (index === 0) return 'token:accent'
+  const alpha = Math.max(0.3, 0.72 - index * 0.06).toFixed(2)
+  return 'token:accent:' + alpha
 }
 
-function getBarWidth(count) {
-  const max = Math.max(...intentDist.value.map(i => i.count), 1)
-  return (count / max) * 100
+const chartFont = 'var(--font-serif)'
+const chartMono = 'var(--font-mono)'
+
+/* ---- 转人工与澄清占比（环形图） ---- */
+const ratioTotal = computed(() => {
+  const total = Number(overview.value.totalConversations) || 0
+  const handoff = Number(overview.value.handoffConversations) || 0
+  const clarification = Number(overview.value.clarificationCount) || 0
+  return Math.max(total, handoff + clarification, 0)
+})
+
+const ratioItems = computed(() => {
+  const total = Number(overview.value.totalConversations) || 0
+  const handoff = Number(overview.value.handoffConversations) || 0
+  const clarification = Number(overview.value.clarificationCount) || 0
+  const other = Math.max(total - handoff - clarification, 0)
+
+  return [
+    { name: '转人工', value: handoff, itemStyle: { color: 'token:accent-love' } },
+    { name: '澄清', value: clarification, itemStyle: { color: 'token:warning' } },
+    { name: '其余', value: other, itemStyle: { color: 'token:text-tertiary' } }
+  ]
+})
+
+const ratioChartOption = computed(() => ({
+  animationDuration: 480,
+  tooltip: {
+    trigger: 'item',
+    formatter: params => {
+      return `${params.marker}${params.name}<br/><span style="font-family:${chartMono}">${params.value} 次（${params.percent}%）</span>`
+    }
+  },
+  legend: {
+    bottom: 0,
+    left: 'center',
+    icon: 'circle',
+    itemWidth: 8,
+    itemHeight: 8,
+    itemGap: 16,
+    textStyle: { color: 'var(--text-secondary)', fontFamily: chartFont, fontSize: 11 }
+  },
+  title: {
+    text: String(ratioTotal.value),
+    subtext: '总会话',
+    left: 'center',
+    top: '33%',
+    textAlign: 'center',
+    itemGap: 4,
+    textStyle: {
+      color: 'var(--text-primary)',
+      fontFamily: chartMono,
+      fontSize: 22,
+      fontWeight: 600
+    },
+    subtextStyle: {
+      color: 'var(--text-tertiary)',
+      fontFamily: chartFont,
+      fontSize: 11
+    }
+  },
+  series: [
+    {
+      name: '会话占比',
+      type: 'pie',
+      radius: ['54%', '74%'],
+      center: ['50%', '42%'],
+      avoidLabelOverlap: true,
+      itemStyle: {
+        borderColor: 'var(--bg-sidebar)',
+        borderWidth: 2,
+        borderRadius: 2
+      },
+      label: { show: false },
+      labelLine: { show: false },
+      emphasis: { scale: true, scaleSize: 4 },
+      data: ratioItems.value
+    }
+  ]
+}))
+
+/* ---- 意图分布（横向条形图） ---- */
+const intentChartHeight = computed(() => {
+  const height = Math.max(260, Math.min(420, intentDist.value.length * 30 + 48))
+  return `${height}px`
+})
+
+const intentChartOption = computed(() => {
+  const rows = [...intentDist.value].sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0))
+
+  return {
+    animationDuration: 420,
+    grid: { left: 80, right: 44, top: 8, bottom: 8 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: params => {
+        const item = Array.isArray(params) ? params[0] : params
+        if (!item) return ''
+        return `${item.marker}${item.name}<br/><span style="font-family:${chartMono}">${item.value} 次</span>`
+      }
+    },
+    xAxis: {
+      type: 'value',
+      minInterval: 1,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: 'var(--text-tertiary)', fontFamily: chartMono, fontSize: 10 },
+      splitLine: { lineStyle: { color: 'var(--rule)' } }
+    },
+    yAxis: {
+      type: 'category',
+      inverse: true,
+      data: rows.map(item => formatIntent(item.intent)),
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: 'var(--text-secondary)', fontFamily: chartFont, fontSize: 11 }
+    },
+    series: [
+      {
+        name: '意图数量',
+        type: 'bar',
+        barMaxWidth: 18,
+        itemStyle: { borderRadius: [0, 2, 2, 0] },
+        data: rows.map((item, index) => ({
+          value: Number(item.count) || 0,
+          itemStyle: { color: intentBarColor(item.intent, index) }
+        })),
+        label: {
+          show: true,
+          position: 'right',
+          color: 'var(--text-primary)',
+          fontFamily: chartMono,
+          fontSize: 10
+        },
+        emphasis: { itemStyle: { opacity: 0.86 } }
+      }
+    ]
+  }
+})
+
+/* ---- 会话趋势（按天聚合的折线面积图） ---- */
+const trendChartOption = computed(() => ({
+  animationDuration: 520,
+  grid: { left: 44, right: 18, top: 24, bottom: 8 },
+  tooltip: {
+    trigger: 'axis',
+    axisPointer: { type: 'line', lineStyle: { color: 'var(--border-primary)' } },
+    formatter: params => {
+      const item = Array.isArray(params) ? params[0] : params
+      if (!item) return ''
+      return `${item.axisValue}<br/>${item.marker}会话数：<span style="font-family:${chartMono}">${item.value}</span>`
+    }
+  },
+  xAxis: {
+    type: 'category',
+    boundaryGap: false,
+    data: trendPoints.value.map(item => item.label),
+    axisLine: { lineStyle: { color: 'var(--border-primary)' } },
+    axisTick: { show: false },
+    axisLabel: {
+      color: 'var(--text-tertiary)',
+      fontFamily: chartMono,
+      fontSize: 10,
+      hideOverlap: true
+    }
+  },
+  yAxis: {
+    type: 'value',
+    minInterval: 1,
+    axisLine: { show: false },
+    axisTick: { show: false },
+    axisLabel: { color: 'var(--text-tertiary)', fontFamily: chartMono, fontSize: 10 },
+    splitLine: { lineStyle: { color: 'var(--rule)', type: 'dashed' } }
+  },
+  series: [
+    {
+      name: '会话数',
+      type: 'line',
+      smooth: 0.28,
+      symbol: 'circle',
+      symbolSize: 5,
+      showSymbol: trendPoints.value.length <= 31,
+      data: trendPoints.value.map(item => item.count),
+      lineStyle: { width: 2, color: 'token:accent' },
+      itemStyle: { color: 'token:accent', borderColor: 'var(--bg-sidebar)', borderWidth: 2 },
+      areaStyle: {
+        color: {
+          type: 'linear',
+          x: 0,
+          y: 0,
+          x2: 0,
+          y2: 1,
+          colorStops: [
+            { offset: 0, color: 'token:accent:0.26' },
+            { offset: 1, color: 'token:accent:0.02' }
+          ]
+        }
+      },
+      emphasis: { focus: 'series' }
+    }
+  ]
+}))
+
+/** 将 created_at 按本地日期聚合成 [{ label: 'MM-DD', count }] */
+function buildTrendPoints(rows) {
+  const buckets = new Map()
+  rows.forEach(row => {
+    if (!row || !row.created_at) return
+    const date = new Date(row.created_at)
+    if (Number.isNaN(date.getTime())) return
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const key = `${date.getFullYear()}-${month}-${day}`
+    const bucket = buckets.get(key) || { key, label: `${month}-${day}`, count: 0 }
+    bucket.count += 1
+    buckets.set(key, bucket)
+  })
+
+  return Array.from(buckets.values())
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map(item => ({ label: item.label, count: item.count }))
 }
 
 /* ---- 时间格式化 ---- */
@@ -340,22 +581,73 @@ function formatTime(t) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/* ---- 数据加载 ---- */
+/* ---- 数据加载：概览与分布分别降级，避免单个接口失败导致白屏 ---- */
 async function loadData() {
   loading.value = true
+  intentChartError.value = false
+  trendChartError.value = false
+  ratioChartError.value = false
+
   try {
-    const [ov, dist] = await Promise.all([
+    const [overviewResult, intentResult] = await Promise.allSettled([
       getOverview(),
       getIntentDistribution()
     ])
-    overview.value = ov || {}
-    intentDist.value = dist || []
+
+    if (overviewResult.status === 'fulfilled') {
+      overview.value = overviewResult.value || {}
+    } else {
+      ratioChartError.value = true
+      console.error('加载总览数据失败:', overviewResult.reason)
+    }
+
+    if (intentResult.status === 'fulfilled') {
+      intentDist.value = Array.isArray(intentResult.value) ? intentResult.value : []
+    } else {
+      intentChartError.value = true
+      console.error('加载意图分布失败:', intentResult.reason)
+    }
+
     await loadSessionList()
+    await loadTrendData()
   } catch (e) {
     console.error('加载分析数据失败:', e)
   } finally {
     loading.value = false
   }
+}
+
+/** 趋势图单独请求较大分页；接口限制或失败时回退当前分页列表 */
+async function loadTrendData() {
+  trendChartError.value = false
+  const requestedSize = 500
+  let rows = []
+
+  try {
+    const result = await getSessionList({
+      page: 1,
+      size: requestedSize,
+      sortBy: 'created_at',
+      sortOrder: 'asc'
+    })
+    const content = Array.isArray(result) ? result : (result?.content || [])
+    const serverSize = Number(result?.size) || 0
+
+    // 服务端若把 pageSize 截断，则改用现有分页数据，避免趋势只统计到一小段
+    rows = serverSize && serverSize < requestedSize && sessions.value.length
+      ? sessions.value
+      : content
+  } catch (e) {
+    console.error('加载会话趋势失败:', e)
+    rows = sessions.value
+    if (!rows.length) {
+      trendChartError.value = true
+      trendPoints.value = []
+      return
+    }
+  }
+
+  trendPoints.value = buildTrendPoints(rows)
 }
 
 /** 加载分页会话列表 */
@@ -638,49 +930,46 @@ onMounted(loadData)
   color: var(--text-tertiary);
 }
 
-/* ===== 意图分布柱状图 ===== */
-.intent-chart {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+/* ===== 图表网格 ===== */
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
 }
 
-.intent-bar-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.intent-label {
-  width: 80px;
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-  text-align: right;
-  flex-shrink: 0;
-}
-
-.intent-bar-track {
-  flex: 1;
-  height: 22px;
+.chart-panel {
+  min-width: 0;
+  padding: 14px 14px 8px;
   background: var(--bg-input);
-  border-radius: var(--radius-xs);
-  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
 }
 
-.intent-bar-fill {
-  height: 100%;
-  border-radius: var(--radius-xs);
-  transition: width 0.6s ease;
-  min-width: 2px;
+.chart-panel-trend {
+  grid-column: 1 / -1;
 }
 
-.intent-count {
-  width: 36px;
-  font-size: 0.8125rem;
+.chart-subtitle {
+  margin-bottom: 8px;
+  font-family: var(--font-serif);
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--text-primary);
-  text-align: right;
-  flex-shrink: 0;
+  letter-spacing: var(--tracking-tight);
+}
+
+.chart-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.chart-message-error {
+  color: var(--danger);
 }
 
 /* ===== 筛选栏 ===== */
@@ -1047,6 +1336,16 @@ onMounted(loadData)
 }
 
 /* ===== 响应式 ===== */
+@media (max-width: 900px) {
+  .charts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-panel-trend {
+    grid-column: auto;
+  }
+}
+
 @media (max-width: 768px) {
   .analytics-page {
     padding: 16px;

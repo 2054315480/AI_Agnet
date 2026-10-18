@@ -8,6 +8,49 @@
   <meta name="author" content="秋鹤" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <title>客服工作台</title>
+  <!-- 在 CSS 生效前同步主题，避免首屏深浅色闪烁；不依赖 Vue -->
+  <script>
+    (function () {
+      var STORAGE_KEY = 'ai-agent-theme-mode'
+      var LEGACY_STORAGE_KEY = 'ai-agent-theme'
+      var mode = 'system'
+
+      try {
+        var storedMode = localStorage.getItem(STORAGE_KEY)
+        if (storedMode === 'system' || storedMode === 'light' || storedMode === 'dark') {
+          mode = storedMode
+        } else {
+          var legacyTheme = localStorage.getItem(LEGACY_STORAGE_KEY)
+          if (legacyTheme === 'light' || legacyTheme === 'dark') {
+            mode = legacyTheme
+            localStorage.setItem(STORAGE_KEY, legacyTheme)
+            localStorage.removeItem(LEGACY_STORAGE_KEY)
+          }
+        }
+      } catch (error) {
+        // 隐私模式或存储不可用时，回退到跟随系统
+      }
+
+      var prefersDark = false
+      try {
+        prefersDark = Boolean(
+          window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+        )
+      } catch (error) {
+        // 不支持 matchMedia 时按浅色处理
+      }
+
+      var resolvedTheme = mode === 'system' ? (prefersDark ? 'dark' : 'light') : mode
+      var root = document.documentElement
+      root.setAttribute('data-theme', resolvedTheme)
+      root.style.colorScheme = resolvedTheme
+
+      var themeColorMeta = document.querySelector('meta[name="theme-color"]')
+      if (themeColorMeta) {
+        themeColorMeta.setAttribute('content', resolvedTheme === 'dark' ? '#0B0D0C' : '#F6F4EE')
+      }
+    })()
+  </script>
 </head>
 <body>
   <div id="app"></div>

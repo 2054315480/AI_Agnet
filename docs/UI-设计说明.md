@@ -77,6 +77,48 @@
 - `04-faq-admin-dark.png`
 - `05-mobile-dark.png`
 
+
+## 图表（ECharts）
+
+分析页的三张图从手写 div 条换成了 **ECharts 6**，按需引入（Bar / Line / Pie + Grid / Tooltip / Legend / Title + CanvasRenderer），并用一层薄封装隔离主题：
+
+- `components/charts/chartTokens.js`：用 `getComputedStyle` 读取 CSS 变量，输出调色板与坐标轴/提示框样式，token 改了图表自动跟着变。
+- `components/charts/BaseChart.vue`：负责 init / resize（ResizeObserver）/ 主题切换重建（MutationObserver 监听 `data-theme`）/ dispose。
+- 三张图：
+  1. **转人工与澄清占比**（环形图）：黄铜=转人工、赭黄=澄清、灰=其余，中心显示总会话数；
+  2. **意图分布**（横向条形图）：语义色优先（转人工=黄铜、投诉=砖红、超范围=灰），其余用青瓷按排名递减透明度，避免"彩虹配色"；
+  3. **会话趋势**（面积折线图）：按天聚合会话数，青瓷低透明度渐变。
+- 单个接口失败只影响对应图表，显示"数据加载失败"，不白屏。
+
+## 会话信息抽屉
+
+对话页顶部加了一条 48px 的工具条（会话标题 + 消息数 + 「会话信息」按钮），右侧是 340px 的抽屉，宽屏下常驻并给对话区让位，窄屏下浮层 + 遮罩：
+
+- **概要**：标题、会话 ID（可复制）、创建时间、最近活跃、提问/答复条数
+- **状态**：机器人在线 / 已转人工、最近意图与置信度、澄清次数
+- **引用来源**：聚合整段会话的出处并统计被引用次数，空态有说明
+- **处理过程**：最近一轮的工具调用记录（类型 + 参数）
+- **操作**：导出 Markdown、结束本次会话（调用 `POST /customer-service/session/{id}/close`）
+- 支持 `?panel=info` 深链直接打开
+
+## 主题三段式
+
+从"深/浅二态"改成 **跟随系统 / 浅色 / 深色**：
+
+- `composables/useTheme.js`：`mode` 持久化到 `ai-agent-theme-mode`，兼容旧 key `ai-agent-theme` 并自动迁移；`system` 模式监听 `matchMedia('(prefers-color-scheme: dark)')` 实时跟随；同步 `data-theme`、`color-scheme`、`meta[theme-color]`。
+- `ThemeToggle.vue`：三段式分段控件（显示器 / 太阳 / 月亮图标 + 文案）。
+- `index.html`：内联脚本在 CSS 生效前先定主题，避免首屏闪烁。
+
+## 数据前提：管理员账号
+
+后端鉴权已改为真实鉴权（`/admin/**`、`/analytics/**` 需要 `ROLE_ADMIN`）。历史种子数据里所有账号的 `role` 都是 `user`，需要手动提升：
+
+```sql
+UPDATE users SET role = 'admin' WHERE username = 'admin';
+```
+
+改完重新登录（token 里会带 `role=admin`）才能进 FAQ 管理与对话分析。
+
 ## 已知限制
 
 1. 图表目前是纯 CSS/HTML 实现，没有引入图表库；数据量大时建议换 ECharts 并复用同一套语义色。

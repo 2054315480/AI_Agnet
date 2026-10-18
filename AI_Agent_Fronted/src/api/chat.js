@@ -27,3 +27,17 @@ export function chatCustomerServiceStream(message, sessionId, { onStep, onComple
     headers: authHeaders()
   })
 }
+
+/**
+ * 结束会话：后端会把该 session 的状态置为 CLOSED，下次同 sessionId 提问会重新初始化
+ */
+export async function closeSession(sessionId) {
+  const res = await fetch(`${API_BASE}/customer-service/session/${encodeURIComponent(sessionId)}/close`, {
+    method: 'POST',
+    headers: authHeaders()
+  })
+  if (!res.ok) {
+    throw new Error('HTTP ' + res.status)
+  }
+  return res.json().catch(() => ({}))
+}

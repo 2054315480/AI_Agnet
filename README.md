@@ -10,9 +10,13 @@
 | --- | --- |
 | ![chat-dark](docs/screenshots/01-chat-dark.png) | ![chat-light](docs/screenshots/02-chat-light.png) |
 
-| 登录 | 对话分析 | FAQ 管理 |
+| 会话信息抽屉 | 对话分析（ECharts） | 对话分析（浅色） |
 | --- | --- | --- |
-| ![login](docs/screenshots/00-login-dark.png) | ![analytics](docs/screenshots/03-analytics-dark.png) | ![faq](docs/screenshots/04-faq-admin-dark.png) |
+| ![drawer](docs/screenshots/06-chat-drawer-dark.png) | ![analytics](docs/screenshots/07-analytics-echarts-dark.png) | ![analytics-light](docs/screenshots/08-analytics-echarts-light.png) |
+
+| 登录 | FAQ 管理 | 跟随系统主题 |
+| --- | --- | --- |
+| ![login](docs/screenshots/00-login-dark.png) | ![faq](docs/screenshots/04-faq-admin-dark.png) | ![system](docs/screenshots/09-theme-system.png) |
 
 设计与改造说明见 [docs/UI-设计说明.md](docs/UI-设计说明.md)。
 

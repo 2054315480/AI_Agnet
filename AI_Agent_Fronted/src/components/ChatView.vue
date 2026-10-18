@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="chat-view">
+  <div class="chat-view" :class="{ 'drawer-open': drawerOpen }">
     <!-- 顶部加载进度线：只保留一条 1px 的细线，不做遮罩 -->
     <div class="top-progress" :class="{ active: isLoading }" aria-hidden="true"></div>
 
@@ -11,6 +11,28 @@
         <line x1="3" y1="18" x2="21" y2="18"/>
       </svg>
     </button>
+
+    <!-- 顶部工具条：会话标题 + 会话信息入口 -->
+    <header class="chat-topbar">
+      <div class="topbar-left">
+        <span class="topbar-title" :title="conversationTitle">{{ conversationTitle }}</span>
+        <span v-if="messageCount" class="topbar-meta">{{ messageCount }} 条消息</span>
+      </div>
+      <button
+        class="topbar-btn"
+        :class="{ active: drawerOpen }"
+        aria-label="打开会话信息"
+        @click="drawerOpen = !drawerOpen"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/>
+          <line x1="12" y1="11" x2="12" y2="16"/>
+          <line x1="12" y1="8" x2="12.01" y2="8"/>
+        </svg>
+        <span>会话信息</span>
+      </button>
+    </header>
 
     <!-- Welcome state -->
     <WelcomeScreen
@@ -54,6 +76,14 @@
         @send="handleSend"
       />
     </div>
+
+    <!-- 右侧会话信息抽屉 -->
+    <ChatInfoDrawer
+      :open="drawerOpen"
+      :conversation="activeConversation"
+      @close="drawerOpen = false"
+      @ended="onSessionEnded"
+    />
   </div>
 </template>
 
@@ -64,6 +94,7 @@ import { useChat } from '../composables/useChat.js'
 import WelcomeScreen from './WelcomeScreen.vue'
 import ChatMessage from './ChatMessage.vue'
 import ChatInput from './ChatInput.vue'
+import ChatInfoDrawer from './ChatInfoDrawer.vue'
 
 const { activeConversation, activeAgent } = useConversations()
 const { isLoading, sendMessage, stopGeneration } = useChat()
@@ -73,6 +104,16 @@ const sidebarStore = inject('sidebarStore', { toggleSidebar: () => {} })
 
 const chatInputRef = ref(null)
 const messagesAreaRef = ref(null)
+// 支持 ?panel=info 直接打开会话信息抽屉（便于分享/深链）
+const drawerOpen = ref(new URLSearchParams(window.location.search).get('panel') === 'info')
+
+const conversationTitle = computed(() => activeConversation.value?.title || '新对话')
+const messageCount = computed(() => activeConversation.value?.messages?.length || 0)
+
+function onSessionEnded() {
+  // 结束会话后收起抽屉，下一条提问会自动开启新会话
+  setTimeout(() => { drawerOpen.value = false }, 1200)
+}
 
 const inputPlaceholder = computed(() =>
   activeAgent.value === 'love'
@@ -169,6 +210,74 @@ onMounted(() => {
   position: relative;
 }
 
+/* 宽屏下抽屉是常驻侧栏：给它让出 340px，避免遮住对话 */
+@media (min-width: 1100px) {
+  .chat-view {
+    transition: padding-right 260ms var(--ease-out);
+  }
+  .chat-view.drawer-open {
+    padding-right: 340px;
+  }
+}
+
+/* ===== 顶部工具条 ===== */
+.chat-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 48px;
+  flex-shrink: 0;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-chat);
+  z-index: 6;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.topbar-title {
+  font-family: var(--font-serif);
+  font-size: 0.9375rem;
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 52vw;
+}
+
+.topbar-meta {
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.topbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.topbar-btn:hover,
+.topbar-btn.active {
+  border-color: var(--accent-border);
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
 /* ===== Mobile FAB ===== */
 .mobile-fab {
   display: none;
@@ -217,6 +326,14 @@ onMounted(() => {
 
 /* ===== Responsive ===== */
 @media (max-width: 768px) {
+  .chat-topbar {
+    padding-left: 60px;
+  }
+
+  .topbar-title {
+    max-width: 42vw;
+  }
+
   .mobile-fab {
     display: flex;
   }
