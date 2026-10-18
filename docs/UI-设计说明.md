@@ -156,6 +156,49 @@ GET /analytics/sessions            -> 会话列表（分页/排序/筛选）与�
 - 切回标签页（`visibilitychange` -> visible）立即刷新一次
 - 组件卸载时清理定时器与事件监听
 
+
+## 引用来源（sources）链路
+
+之前会话信息抽屉里的"引用来源"一直是 0，原因不是检索没命中，而是**出处这条数据从来没被传出去**。现在补齐为三段：
+
+```
+检索工具返回 JSON（含 results[].source）
+  -> CustomerServiceAgent.captureSources() 正则提取 source 去重
+       - SSE 推 sources 事件（前端即时显示出处 chip）
+       - 缓存到 currentSources
+  -> 本轮结束 persistAssistantTurn() 把 {"items":[...]} 写入 conversation_messages.sources（jsonb）
+  -> /conversations/{id} 读出后，抽屉与气泡上的出处 chip 都能显示
+```
+
+顺带修掉两个隐藏很深的问题：
+
+1. **jsonb 写入失败**：MyBatis-Plus 的 `JacksonTypeHandler` 用 `setString` 传 varchar，写 jsonb 列直接报错
+   （`字段 "sources" 的类型为 jsonb, 但表达式的类型为 character varying`）。
+   新增 `config/JsonbTypeHandler`，改用 `setObject(i, json, Types.OTHER)`；`slots` 与 `sources` 都换成它。
+2. **jsonb 读取为 null**：`ConversationService.getMessages` 走的是手写 `@Select`，不会应用实体上的 TypeHandler，
+   改成 `selectList` 后才会走 MP 生成的 resultMap。
+
+## 两段式落库
+
+原来只在"本轮结束"时一次性写用户消息 + 助手消息 + 分析聚合，用户点"停止生成"或 SSE 断开时整轮都会丢。现在拆成两段：
+
+| 时机 | 动作 |
+| --- | --- |
+| 请求进入（`runStream` 之前） | `persistUserTurn()`：建会话（标题取用户首句、绑定当前用户）+ 写 user 消息 |
+| 本轮结束（完成回调） | `persistAssistantTurn()`：写 assistant 消息（意图/槽位/置信度/转人工/澄清/出处）+ upsert 分析聚合 |
+
+这样即使中途断开，用户的问题也已经落库，分析页至少能看到这一轮。
+
+## 演示账号与权限矩阵
+
+| 账号 | 密码 | 角色 | 对话 | 会话信息抽屉 | 对话分析 | FAQ 管理 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `admin_demo` | `Admin@2026` | admin | ✅ | ✅ | ✅ | ✅ |
+| `user_demo` | `User@2026` | user | ✅ | ✅ | ⛔ 403（页面显示无权提示） | ⛔ 403 |
+
+普通账号登录后侧边栏会隐藏"对话分析 / FAQ 管理"；直接访问 URL 时，分析页会显示
+"当前账号没有分析权限（需要管理员角色）"并提供"重新登录"按钮，而不是笼统的"数据加载失败"。
+
 ## 已知限制
 
 1. 图表目前是纯 CSS/HTML 实现，没有引入图表库；数据量大时建议换 ECharts 并复用同一套语义色。

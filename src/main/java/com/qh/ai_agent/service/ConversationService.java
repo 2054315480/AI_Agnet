@@ -93,6 +93,10 @@ public class ConversationService {
     }
 
     public List<ConversationMessage> getMessages(String conversationId) {
-        return messageMapper.findByConversationId(conversationId);
+        // 用 selectList 而不是手写 @Select：只有 MP 生成的 resultMap 才会应用实体上的
+        // JsonbTypeHandler，否则 sources（jsonb）读出来会是 null。
+        return messageMapper.selectList(new LambdaQueryWrapper<ConversationMessage>()
+                .eq(ConversationMessage::getConversationId, conversationId)
+                .orderByAsc(ConversationMessage::getId));
     }
 }

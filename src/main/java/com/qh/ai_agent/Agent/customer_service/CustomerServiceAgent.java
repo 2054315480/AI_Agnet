@@ -63,6 +63,18 @@ public class CustomerServiceAgent extends ToolCallAgent {
     /** 本次请求是否已记录过一轮历史 */
     private boolean historyRecordedThisTurn = false;
 
+    /** 本轮检索命中的出处（用于 SSE 推送与落库） */
+    private final java.util.List<String> currentSources = new java.util.ArrayList<>();
+
+    /** 从工具返回的检索 JSON 中提取 source 字段 */
+    private static final java.util.regex.Pattern SOURCE_PATTERN =
+            java.util.regex.Pattern.compile("\"source\"\\s*:\\s*\"([^\"]+)\"");
+
+    /** 供 Controller 落库使用 */
+    public java.util.List<String> getCurrentSources() {
+        return new java.util.ArrayList<>(currentSources);
+    }
+
     private static final double MIN_CONFIDENCE = 0.5;
     /** 转人工阈值：连续超范围轮数 */
     private static final int HANDOFF_OUT_OF_SCOPE_THRESHOLD = 2;
@@ -135,6 +147,7 @@ public class CustomerServiceAgent extends ToolCallAgent {
             // === 输入侧护栏 + 跨轮上下文：只在本次请求的第一步执行一次 ===
             if (getCurrentStep() <= 1) {
                 historyRecordedThisTurn = false;
+                currentSources.clear();
                 if (chatGuardService != null) {
                     ChatGuardService.GuardResult guard = chatGuardService.guardInput(lastUserInput);
                     if (!guard.allowed()) {
@@ -281,6 +294,8 @@ public class CustomerServiceAgent extends ToolCallAgent {
                 return "思考完成 - 无需行动";
             }
             String actResult = actAndExtractSuggestions();
+            // 从工具结果里提取出处：推 SSE 给前端展示，同时缓存给 Controller 落库
+            captureSources(actResult);
             // 命中判定只看是否真的检索到档案，不用分数阈值，避免 RRF 低分量级被误判为空
             boolean knowledgeHit = hasKnowledgeResults(actResult);
 
@@ -722,6 +737,39 @@ public class CustomerServiceAgent extends ToolCallAgent {
             appendTurnToHistory(safe);
             dialogStateManager.updateState(sessionId, dialogState);
         }
+    }
+
+    /**
+     * 从检索工具返回的 JSON 中提取 source，去重后推送 sources 事件并缓存。
+     */
+    private void captureSources(String actResult) {
+        if (actResult == null || actResult.isBlank()) {
+            return;
+        }
+        java.util.regex.Matcher matcher = SOURCE_PATTERN.matcher(actResult);
+        java.util.List<String> found = new java.util.ArrayList<>();
+        while (matcher.find()) {
+            String src = matcher.group(1);
+            if (src != null && !src.isBlank() && !found.contains(src)) {
+                found.add(src);
+            }
+        }
+        if (found.isEmpty()) {
+            return;
+        }
+        currentSources.clear();
+        currentSources.addAll(found);
+
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < found.size(); i++) {
+            if (i > 0) {
+                sb.append(",");
+            }
+            sb.append("\"").append(found.get(i).replace("\\", "\\\\").replace("\"", "\\\"")).append("\"");
+        }
+        sb.append("]");
+        sendSseEvent("sources", sb.toString());
+        log.info("[Sources] 会话 {} 本轮命中出处 {} 条: {}", sessionId, found.size(), found);
     }
 
     /** 输出侧护栏：违禁词过滤 + 敏感信息脱敏 */

@@ -61,7 +61,9 @@ public class CustomerServiceController {
      */
     @GetMapping("/chat")
     public SseEmitter chat(@RequestParam String message,
-                           @RequestParam(required = false) String sessionId) {
+                           @RequestParam(required = false) String sessionId,
+                           @org.springframework.security.core.annotation.AuthenticationPrincipal
+                           com.qh.ai_agent.entity.User currentUser) {
         log.info("[CS-Controller] 收到消息: {}, sessionId: {}", message, sessionId);
 
         ToolCallback[] tools = ToolCallbacks.from(customerServiceTools);
@@ -76,7 +78,9 @@ public class CustomerServiceController {
 
         // 关键修复：在 runStream 之前注册完成回调，确保 async 任务完成后必定触发持久化
         // 之前用 SseEmitter.onCompletion 存在竞态条件：async 任务可能在回调注册前就完成
-        agent.setOnCompleteHook(() -> persistDialogData(sid, message, agent));
+        // 两段式落库：请求进来先写用户消息（中途断开也不丢），本轮结束后再补写回复与分析
+        persistUserTurn(sid, message, currentUser != null ? currentUser.getId() : null);
+        agent.setOnCompleteHook(() -> persistAssistantTurn(sid, agent));
 
         SseEmitter emitter = agent.runStream(message);
 
@@ -187,16 +191,24 @@ public class CustomerServiceController {
         return title;
     }
 
-    /** 持久化对话数据（用户消息 + AI 回复 + 分析字段） */
-    private void persistDialogData(String sessionId, String userMessage, CustomerServiceAgent agent) {
+    /** 第一段：请求进入时立即写用户消息，避免中途断开导致整轮丢失 */
+    private void persistUserTurn(String sessionId, String userMessage, Long userId) {
         try {
             // 确保会话存在：用用户第一句话做标题，避免分析页列表里全是"客服对话"
+            // 同时绑定当前登录用户，否则会话在侧边栏列表里查不到
             if (conversationService.getById(sessionId) == null) {
-                conversationService.create(sessionId, null, buildConversationTitle(userMessage), "customer_service");
+                conversationService.create(sessionId, userId, buildConversationTitle(userMessage), "customer_service");
             }
-
-            // 保存用户消息
             conversationService.addMessage(sessionId, "user", userMessage);
+            log.info("[CS-Controller] 用户消息已落库: sessionId={}", sessionId);
+        } catch (Exception e) {
+            log.error("[CS-Controller] 用户消息落库失败: sessionId={}", sessionId, e);
+        }
+    }
+
+    /** 第二段：本轮结束后写助手回复（含意图/槽位/置信度/出处）并更新分析聚合 */
+    private void persistAssistantTurn(String sessionId, CustomerServiceAgent agent) {
+        try {
 
             // 从 DialogState 获取意图信息
             DialogState state = dialogStateManager.getState(sessionId);
@@ -227,17 +239,28 @@ public class CustomerServiceController {
             // 从 Agent 消息列表获取最后的 AI 回复
             String assistantReply = getLastAssistantMessage(agent);
             if (assistantReply != null) {
+                // 出处落库：供分析页/会话抽屉在重新加载后仍能看到引用来源
+                java.util.Map<String, Object> sources = null;
+                java.util.List<String> sourceList = agent.getCurrentSources();
+                if (sourceList != null && !sourceList.isEmpty()) {
+                    sources = java.util.Map.of("items", sourceList);
+                }
                 conversationService.addMessage(sessionId, "assistant", assistantReply,
-                        intent, slots, confidence, isHandoff, isClarification, null);
+                        intent, slots, confidence, isHandoff, isClarification, sources);
             }
 
             // 直接 SQL upsert 聚合分析（绕过 ORM，确保可靠写入）
             dialogAnalyticsMapper.upsertAnalyticsDirect(sessionId);
 
-            log.info("[CS-Controller] 对话数据持久化完成: sessionId={}, intent={}, isHandoff={}", sessionId, intent, isHandoff);
+            log.info("[CS-Controller] 助手回复与分析已落库: sessionId={}, intent={}, isHandoff={}, sources={}",
+                    sessionId, intent, isHandoff, sourceList(agent));
         } catch (Exception e) {
-            log.error("[CS-Controller] 持久化对话数据失败: sessionId={}", sessionId, e);
+            log.error("[CS-Controller] 助手回复落库失败: sessionId={}", sessionId, e);
         }
+    }
+
+    private int sourceList(CustomerServiceAgent agent) {
+        return agent.getCurrentSources().size();
     }
 
     private String getLastAssistantMessage(CustomerServiceAgent agent) {

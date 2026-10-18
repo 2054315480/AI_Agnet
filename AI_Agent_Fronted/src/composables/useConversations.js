@@ -64,6 +64,15 @@ export function useConversations() {
             stepLabel: '',
             thinkingSteps: [],
             imageUrl: m.imageUrl || null,
+            // 出处：后端存的是 {"items":[...]}，兼容直接存数组的历史数据
+            sources: Array.isArray(m.sources?.items)
+              ? m.sources.items
+              : (Array.isArray(m.sources) ? m.sources : []),
+            intentInfo: m.intent
+              ? { intent: m.intent, displayName: m.intent, confidence: m.confidence || 0 }
+              : null,
+            isHandoff: Boolean(m.isHandoff),
+            isClarification: Boolean(m.isClarification),
             time: m.createdAt ? formatTime(new Date(m.createdAt).getTime()) : '',
             timestamp: m.createdAt ? new Date(m.createdAt).getTime() : Date.now()
           }))

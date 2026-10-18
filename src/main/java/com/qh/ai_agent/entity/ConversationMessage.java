@@ -1,7 +1,7 @@
 package com.qh.ai_agent.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
-import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
+import com.qh.ai_agent.config.JsonbTypeHandler;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -30,7 +30,7 @@ public class ConversationMessage {
     private String intent;
 
     /** 提取的槽位 JSON（如 {"order_id":"ABC123"}） */
-    @TableField(value = "slots", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "slots", typeHandler = JsonbTypeHandler.class)
     private Map<String, String> slots;
 
     /** 意图识别置信度 0.0~1.0 */
@@ -46,7 +46,7 @@ public class ConversationMessage {
     private Boolean isClarification;
 
     /** 知识库来源出处 JSON */
-    @TableField(value = "sources", typeHandler = JacksonTypeHandler.class)
+    @TableField(value = "sources", typeHandler = JsonbTypeHandler.class)
     private Map<String, Object> sources;
 
     @TableField(value = "created_at", fill = FieldFill.INSERT)

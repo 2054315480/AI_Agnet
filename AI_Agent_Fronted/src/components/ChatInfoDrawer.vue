@@ -99,7 +99,7 @@
                 <span class="step-text">{{ step.content }}</span>
               </li>
             </ol>
-            <p v-else class="d-empty">本轮没有工具调用记录。</p>
+            <p v-else class="d-empty">工具调用记录只在实时对话中展示，历史会话不保留该明细。</p>
           </section>
 
           <!-- 操作 -->

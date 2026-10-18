@@ -79,14 +79,15 @@ public class AuthController {
     }
 
     /**
-     * 不返回密码等敏感字段；字段结构与前端现有契约一致，不新增 role。
+     * 不返回密码等敏感字段；额外返回 role，便于前端区分管理员入口。
      */
     private Map<String, Object> sanitizeUser(User user) {
         return Map.of(
                 "id", user.getId(),
                 "username", user.getUsername(),
                 "nickname", user.getNickname(),
-                "avatar", user.getAvatar() != null ? user.getAvatar() : ""
+                "avatar", user.getAvatar() != null ? user.getAvatar() : "",
+                "role", user.getRole() != null ? user.getRole() : "user"
         );
     }
 

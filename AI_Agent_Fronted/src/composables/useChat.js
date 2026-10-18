@@ -87,6 +87,16 @@ export function useChat() {
           updateLastMessage(convId, { thinkingSteps: steps, loading: true })
         } else if (event.type === 'answer') {
           updateLastMessage(convId, { content: event.content, loading: true })
+        } else if (event.type === 'sources') {
+          // 引用来源：后端从检索结果里提取的原文出处
+          try {
+            const list = JSON.parse(event.content)
+            if (Array.isArray(list)) {
+              updateLastMessage(convId, { sources: list, loading: true })
+            }
+          } catch (e) {
+            // ignore parse error
+          }
         } else if (event.type === 'suggested_questions') {
           try {
             const questions = JSON.parse(event.content)

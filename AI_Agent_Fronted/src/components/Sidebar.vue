@@ -104,7 +104,7 @@
         </svg>
         <span>批量测试</span>
       </button>
-      <button v-if="open" class="sidebar-action-btn" @click="goToAnalytics">
+      <button v-if="open && isAdmin" class="sidebar-action-btn" @click="goToAnalytics">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="20" x2="18" y2="10"/>
           <line x1="12" y1="20" x2="12" y2="4"/>
@@ -112,7 +112,7 @@
         </svg>
         <span>对话分析</span>
       </button>
-      <button v-if="open" class="sidebar-action-btn" @click="goToAdminFaq">
+      <button v-if="open && isAdmin" class="sidebar-action-btn" @click="goToAdminFaq">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
           <polyline points="14 2 14 8 20 8"/>
@@ -154,6 +154,9 @@ const {
 } = useConversations()
 
 const { user: currentUser, logout } = useAuth()
+
+// 只有管理员才显示"对话分析"和"FAQ 管理"（后端 /admin、/analytics 已要求 ROLE_ADMIN）
+const isAdmin = computed(() => String(currentUser.value?.role || '').toLowerCase() === 'admin')
 
 const router = useRouter()
 

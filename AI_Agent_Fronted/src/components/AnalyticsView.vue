@@ -45,6 +45,17 @@
     </div>
 
     <template v-else>
+      <!-- 权限提示：403 时明确告诉用户原因，而不是笼统的"数据加载失败" -->
+      <div v-if="permissionDenied" class="perm-banner">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        <span>当前账号没有分析权限（需要管理员角色）。请用管理员账号重新登录后再查看。</span>
+        <button class="perm-btn" @click="relogin">重新登录</button>
+      </div>
+
       <!-- 总览统计卡片 -->
       <div class="stats-grid">
         <div class="stat-card">
@@ -120,21 +131,21 @@
         <div class="charts-grid">
           <div class="chart-panel chart-panel-ratio">
             <h3 class="chart-subtitle">转人工与澄清占比</h3>
-            <div v-if="ratioChartError" class="chart-message chart-message-error">数据加载失败</div>
+            <div v-if="ratioChartError" class="chart-message chart-message-error">{{ permissionDenied ? '无权限查看（需管理员）' : '数据加载失败' }}</div>
             <div v-else-if="ratioTotal === 0" class="chart-message">暂无占比数据</div>
             <BaseChart v-else :option="ratioChartOption" height="280px" />
           </div>
 
           <div class="chart-panel chart-panel-intent">
             <h3 class="chart-subtitle">意图分布</h3>
-            <div v-if="intentChartError" class="chart-message chart-message-error">数据加载失败</div>
+            <div v-if="intentChartError" class="chart-message chart-message-error">{{ permissionDenied ? '无权限查看（需管理员）' : '数据加载失败' }}</div>
             <div v-else-if="intentDist.length === 0" class="chart-message">暂无意图分布数据</div>
             <BaseChart v-else :option="intentChartOption" :height="intentChartHeight" />
           </div>
 
           <div class="chart-panel chart-panel-trend">
             <h3 class="chart-subtitle">会话趋势</h3>
-            <div v-if="trendChartError" class="chart-message chart-message-error">数据加载失败</div>
+            <div v-if="trendChartError" class="chart-message chart-message-error">{{ permissionDenied ? '无权限查看（需管理员）' : '数据加载失败' }}</div>
             <div v-else-if="trendPoints.length === 0" class="chart-message">暂无会话趋势数据</div>
             <BaseChart v-else :option="trendChartOption" height="260px" />
           </div>
@@ -306,6 +317,17 @@ const intentDist = ref([])
 const intentChartError = ref(false)
 const trendChartError = ref(false)
 const ratioChartError = ref(false)
+const permissionDenied = ref(false)
+
+function isForbidden(err) {
+  return err && err.response && err.response.status === 403
+}
+
+function relogin() {
+  localStorage.removeItem('token')
+  localStorage.removeItem('user')
+  window.location.href = '/login'
+}
 const trendPoints = ref([])
 
 /* ---- 分页/排序/筛选查询状态 ---- */
@@ -619,6 +641,7 @@ async function loadData(options = {}) {
       overview.value = overviewResult.value || {}
     } else {
       ratioChartError.value = true
+      permissionDenied.value = isForbidden(overviewResult.reason)
       console.error('加载总览数据失败:', overviewResult.reason)
     }
 
@@ -626,6 +649,7 @@ async function loadData(options = {}) {
       intentDist.value = Array.isArray(intentResult.value) ? intentResult.value : []
     } else {
       intentChartError.value = true
+      permissionDenied.value = permissionDenied.value || isForbidden(intentResult.reason)
       console.error('加载意图分布失败:', intentResult.reason)
     }
 
@@ -879,6 +903,32 @@ onBeforeUnmount(() => {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+.perm-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent-love-border);
+  border-radius: var(--radius-sm);
+  background: var(--accent-love-bg);
+  color: var(--accent-love);
+  font-size: 0.8125rem;
+}
+
+.perm-banner span { flex: 1; }
+
+.perm-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--accent-love-border);
+  border-radius: var(--radius-xs);
+  color: var(--accent-love);
+  font-size: 0.75rem;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.perm-btn:hover { background: rgba(194, 163, 107, 0.16); }
 
 /* ===== 页面容器 ===== */
 .analytics-page {
