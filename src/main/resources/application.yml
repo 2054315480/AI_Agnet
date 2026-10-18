@@ -77,6 +77,11 @@ knife4j:
 cs:
   faq:
     data-dir: ./data/faq
+    # FAQ 独立 Lucene 索引（Tier1 精确匹配）
+    lucene-enabled: true
+    lucene-index-dir: ./kb-lucene-faq-index
+    lucene-min-match-ratio: 0.5
+    lucene-top-k: 5
   # 向量检索相关性下限（0~1，越大越严格）；低于该值视为知识库未命中，触发槽位追问/澄清
   # 实测(774 条语料 + text-embedding-v2)：0.35 挡不住无关问题，0.5 可以；偏召回可调回 0.35
   vector:
@@ -90,12 +95,6 @@ cs:
     filter-doc-type: ""
     # BM25 主索引目录
     bm25-index-dir: ./kb-lucene-index
-  # FAQ 独立 Lucene 索引（Tier1 精确匹配）
-  faq:
-    lucene-enabled: true
-    lucene-index-dir: ./kb-lucene-faq-index
-    lucene-min-match-ratio: 0.5
-    lucene-top-k: 5
   # 知识库重建 / 增量入库
   reindex:
     auto-on-upload: true
