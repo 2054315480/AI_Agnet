@@ -119,6 +119,43 @@ UPDATE users SET role = 'admin' WHERE username = 'admin';
 
 改完重新登录（token 里会带 `role=admin`）才能进 FAQ 管理与对话分析。
 
+
+## 分析页的数据链路与刷新
+
+**写入链路**（每轮对话结束都会执行，实测可用）：
+
+```
+POST /customer-service/chat
+  -> CustomerServiceAgent 完成本轮
+  -> onCompleteHook -> persistDialogData()
+       1) conversations 不存在则创建（标题取用户第一句话，压缩空白并截断 20 字）
+       2) conversation_messages 追加 user / assistant 两条
+       3) dialog_analytics 按 conversation_id upsert（轮次、意图分布、转人工、澄清数、平均置信度）
+```
+
+**读取链路**：
+
+```
+GET /analytics/overview            -> KPI + 意图分布 + 转人工/澄清数
+GET /analytics/intent-distribution -> 意图分布（图表）
+GET /analytics/sessions            -> 会话列表（分页/排序/筛选）与趋势图数据源
+```
+
+响应头已经是 `Cache-Control: no-cache, no-store`，不存在浏览器缓存导致的"数据不更新"。
+
+**之前看起来"不更新"的真实原因有两个**：
+
+1. 所有账号的 `role` 都是 `user`，`/analytics/**` 需要 `ROLE_ADMIN`，请求全部 403 -> 页面只显示默认 0 和"数据加载失败"。
+   已执行 `UPDATE users SET role='admin' WHERE username='admin';` 并在上文记录。
+2. 分析页只在 `onMounted` 取一次数。页面开着就不会再拉，聊天产生的新数据要重新进入页面才看得到。
+
+**现在的刷新策略**：
+
+- 顶部有手动刷新按钮（转圈动画），旁边显示"更新于 HH:MM:SS"
+- 每 30 秒自动静默刷新（不闪整页 loading）；标签页不可见或正在看会话回放弹窗时跳过
+- 切回标签页（`visibilitychange` -> visible）立即刷新一次
+- 组件卸载时清理定时器与事件监听
+
 ## 已知限制
 
 1. 图表目前是纯 CSS/HTML 实现，没有引入图表库；数据量大时建议换 ECharts 并复用同一套语义色。

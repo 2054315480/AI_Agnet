@@ -9,14 +9,33 @@
         <span>返回对话</span>
       </button>
       <h1 class="page-title">对话分析仪表盘</h1>
-      <button class="export-btn" aria-label="导出全部对话CSV" @click="exportAll">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        <span>导出全部 CSV</span>
-      </button>
+      <div class="header-actions">
+        <span class="updated-at" v-if="lastUpdatedText" :title="'数据更新于 ' + lastUpdatedText">
+          更新于 {{ lastUpdatedText }}
+        </span>
+        <button
+          class="refresh-btn"
+          :class="{ spinning: refreshing }"
+          aria-label="刷新数据"
+          title="刷新（每 30 秒自动刷新）"
+          :disabled="refreshing"
+          @click="refreshAll(true)"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+        </button>
+        <button class="export-btn" aria-label="导出全部对话CSV" @click="exportAll">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span>导出全部 CSV</span>
+        </button>
+      </div>
     </div>
 
     <!-- 加载中 -->
@@ -266,7 +285,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import {
   getOverview,
   getIntentDistribution,
@@ -582,8 +601,10 @@ function formatTime(t) {
 }
 
 /* ---- 数据加载：概览与分布分别降级，避免单个接口失败导致白屏 ---- */
-async function loadData() {
-  loading.value = true
+/** 静默刷新时不显示整页 loading，避免自动刷新导致页面闪烁 */
+async function loadData(options = {}) {
+  const silent = options.silent === true
+  if (!silent) loading.value = true
   intentChartError.value = false
   trendChartError.value = false
   ratioChartError.value = false
@@ -613,7 +634,51 @@ async function loadData() {
   } catch (e) {
     console.error('加载分析数据失败:', e)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
+    lastUpdatedAt.value = Date.now()
+  }
+}
+
+/* ---- 手动 / 自动刷新 ---- */
+const refreshing = ref(false)
+const lastUpdatedAt = ref(null)
+const lastUpdatedText = computed(() => {
+  if (!lastUpdatedAt.value) return ''
+  return new Date(lastUpdatedAt.value).toLocaleTimeString('zh-CN', { hour12: false })
+})
+
+async function refreshAll(manual = false) {
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    await loadData({ silent: true })
+  } finally {
+    refreshing.value = false
+  }
+}
+
+let autoRefreshTimer = null
+
+function stopAutoRefresh() {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer)
+    autoRefreshTimer = null
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshTimer = setInterval(() => {
+    // 页面不可见或正在看回放弹窗时不刷新，避免打断阅读
+    if (document.visibilityState === 'visible' && !showDetail.value) {
+      refreshAll()
+    }
+  }, 30000)
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    refreshAll()
   }
 }
 
@@ -762,10 +827,59 @@ function downloadCsv(url, filename, token) {
     .catch(e => alert('导出失败: ' + e.message))
 }
 
-onMounted(loadData)
+onMounted(() => {
+  loadData()
+  startAutoRefresh()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 </script>
 
 <style scoped>
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.updated-at {
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.refresh-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.refresh-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-border);
+  background: var(--bg-hover);
+}
+
+.refresh-btn:disabled { opacity: 0.6; cursor: default; }
+
+.refresh-btn.spinning svg { animation: spin 900ms linear infinite; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ===== 页面容器 ===== */
 .analytics-page {
   height: 100dvh;

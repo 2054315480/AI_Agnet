@@ -175,12 +175,24 @@ public class CustomerServiceController {
         return dialogStateManager.getState(sessionId);
     }
 
+    /** 用用户第一句话生成会话标题（压缩空白，超长截断） */
+    private String buildConversationTitle(String userMessage) {
+        if (userMessage == null || userMessage.isBlank()) {
+            return "客服对话";
+        }
+        String title = userMessage.replaceAll("\\s+", " ").trim();
+        if (title.length() > 20) {
+            title = title.substring(0, 20) + "...";
+        }
+        return title;
+    }
+
     /** 持久化对话数据（用户消息 + AI 回复 + 分析字段） */
     private void persistDialogData(String sessionId, String userMessage, CustomerServiceAgent agent) {
         try {
-            // 确保会话存在
+            // 确保会话存在：用用户第一句话做标题，避免分析页列表里全是"客服对话"
             if (conversationService.getById(sessionId) == null) {
-                conversationService.create(sessionId, null, "客服对话", "customer_service");
+                conversationService.create(sessionId, null, buildConversationTitle(userMessage), "customer_service");
             }
 
             // 保存用户消息
