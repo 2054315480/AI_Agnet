@@ -14,13 +14,7 @@
         </svg>
       </button>
       <div v-if="open" class="sidebar-brand">
-        <span class="brand-mark" aria-hidden="true">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7A2.5 2.5 0 0 1 17.5 16H10l-4.2 3.2A.6.6 0 0 1 5 18.7V16"/>
-            <path d="M8 8.5h8M8 11.5h5"/>
-          </svg>
-        </span>
+        <BrandMark :size="30" />
         <div class="brand-copy">
           <span class="brand-text">客服工作台</span>
           <span class="brand-sub">Service Desk</span>
@@ -136,6 +130,7 @@ import { useRouter } from 'vue-router'
 import { useConversations } from '../composables/useConversations.js'
 import { useAuth } from '../api/auth.js'
 import ThemeToggle from './ThemeToggle.vue'
+import BrandMark from './BrandMark.vue'
 
 defineProps({
   open: { type: Boolean, default: true }
@@ -512,15 +507,6 @@ function handleLogout() {
 
 .sidebar-brand { align-items: center; }
 
-.brand-mark {
-  width: 30px; height: 30px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border-primary);
-  border-radius: 8px;
-  color: var(--accent);
-  background: var(--bg-step);
-  flex-shrink: 0;
-}
 
 .brand-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 

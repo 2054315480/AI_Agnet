@@ -6,13 +6,7 @@
       <div class="brand-gradient"></div>
       <div class="brand-content">
         <div class="brand-caption">
-          <span class="brand-mark" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7A2.5 2.5 0 0 1 17.5 16H10l-4.2 3.2A.6.6 0 0 1 5 18.7V16"/>
-              <path d="M8 8.5h8M8 11.5h5"/>
-            </svg>
-          </span>
+          <BrandMark :size="30" solid />
           <span>Service Desk</span>
         </div>
         <h1 class="brand-title">客服工作台</h1>
@@ -90,6 +84,7 @@
 </template>
 
 <script setup>
+import BrandMark from './BrandMark.vue'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../api/auth'
@@ -444,14 +439,6 @@ async function handleSubmit() {
   color: rgba(233,230,223,0.5);
 }
 
-.brand-mark {
-  width: 30px; height: 30px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid rgba(233,230,223,0.18);
-  border-radius: 8px;
-  color: #8FC0B3;
-  background: rgba(233,230,223,0.04);
-}
 
 .brand-title {
   font-family: var(--font-serif);
