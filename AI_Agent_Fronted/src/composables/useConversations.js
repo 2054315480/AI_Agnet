@@ -78,7 +78,8 @@ export function useConversations() {
           }))
           results.push({
             id: sc.id,
-            agent: sc.agentType || 'love',
+            // 现在只服务智能客服；历史 love 会话也统一按客服会话展示，避免占位文案/入口错乱
+            agent: 'customer_service',
             title: sc.title || '',
             messages: msgs,
             createdAt: sc.createdAt ? new Date(sc.createdAt).getTime() : Date.now(),
@@ -89,7 +90,8 @@ export function useConversations() {
           // Skip conversations that fail to load
           results.push({
             id: sc.id,
-            agent: sc.agentType || 'love',
+            // 现在只服务智能客服；历史 love 会话也统一按客服会话展示，避免占位文案/入口错乱
+            agent: 'customer_service',
             title: sc.title || '',
             messages: [],
             createdAt: sc.createdAt ? new Date(sc.createdAt).getTime() : Date.now(),

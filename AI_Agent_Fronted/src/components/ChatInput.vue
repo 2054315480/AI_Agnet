@@ -58,7 +58,7 @@
 import { ref, nextTick } from 'vue'
 
 const props = defineProps({
-  agent: { type: String, default: 'love' },
+  agent: { type: String, default: 'customer_service' },
   placeholder: { type: String, default: '输入消息...' },
   disabled: { type: Boolean, default: false }
 })

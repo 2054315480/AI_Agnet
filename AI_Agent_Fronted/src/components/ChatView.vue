@@ -115,11 +115,8 @@ function onSessionEnded() {
   setTimeout(() => { drawerOpen.value = false }, 1200)
 }
 
-const inputPlaceholder = computed(() =>
-  activeAgent.value === 'love'
-    ? '输入你想问的恋爱问题...'
-    : '请描述您的问题，例如"查询订单"或"退款政策"...'
-)
+// 目前只提供智能客服一个入口，占位文案不再按 agent 分支（历史 love 会话也能正常使用）
+const inputPlaceholder = computed(() => '请描述您的问题，例如"查询订单"或"退款政策"...')
 
 function handleSend(text, imageFile, imageUrl) {
   sendMessage(text, imageFile, imageUrl)
@@ -161,7 +158,7 @@ watch(() => activeConversation.value?.messages?.length, () => {
   scrollToBottom()
 })
 
-// Watch for content updates (Love streaming — content grows on same message)
+// Watch for content updates (streaming: content grows on the same message)
 watch(
   () => {
     const conv = activeConversation.value
