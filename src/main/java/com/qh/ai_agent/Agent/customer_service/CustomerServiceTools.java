@@ -2,6 +2,7 @@ package com.qh.ai_agent.Agent.customer_service;
 
 import com.qh.ai_agent.knowledge.KnowledgeSearchService;
 import com.qh.ai_agent.knowledge.KnowledgeSearchService.HybridSearchResult;
+import com.qh.ai_agent.knowledge.QueryRewriteService;
 import com.qh.ai_agent.knowledge.KnowledgeSearchService.KnowledgeSearchResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,8 @@ import java.util.stream.Collectors;
 public class CustomerServiceTools {
 
     private final KnowledgeSearchService knowledgeSearchService;
+
+    private final QueryRewriteService queryRewriteService;
 
     @Tool(description = "查询订单状态和物流信息。当用户询问订单状态、物流、配送进度时使用。注意：当前为演示模式，无真实订单数据，请结合 searchKnowledgeBase 查找订单相关的 FAQ 指引。")
     public String queryOrder(@ToolParam(description = "订单编号") String orderId) {
@@ -52,8 +55,26 @@ public class CustomerServiceTools {
 
     @Tool(description = "在知识库中搜索匹配的问题和答案。当用户提问涉及FAQ、政策说明、退换货规则、配送规则等常见问题时使用。请传入用户的完整原始提问（不要简化为关键词），搜索范围包含银行/电信/电商三个行业的完整知识库。")
     public String searchKnowledgeBase(@ToolParam(description = "用户的完整原始提问（不要简化为关键词）") String query) {
-        log.info("[CS-Tool] searchKnowledgeBase: {}", query);
-        HybridSearchResult searchResult = knowledgeSearchService.hybridSearch(query, 3);
+        String originalQuery = query == null ? "" : query;
+        String rewrittenQuery = originalQuery;
+        List<String> matchedSynonyms = List.of();
+        try {
+            QueryRewriteService.QueryRewriteResult rewriteResult =
+                    queryRewriteService.rewrite(originalQuery);
+            if (rewriteResult != null && rewriteResult.rewrittenQuery() != null
+                    && !rewriteResult.rewrittenQuery().isBlank()) {
+                rewrittenQuery = rewriteResult.rewrittenQuery();
+            }
+            if (rewriteResult != null && rewriteResult.matchedSynonyms() != null) {
+                matchedSynonyms = rewriteResult.matchedSynonyms();
+            }
+        } catch (Exception e) {
+            // 查询改写只是增强项，失败时继续使用原始 query，不能阻断知识库检索。
+            log.warn("[CS-Tool] 查询改写失败，沿用原查询: {}", e.getMessage());
+        }
+        log.info("[CS-Tool] searchKnowledgeBase: original='{}', rewritten='{}', matchedSynonyms={}",
+                originalQuery, rewrittenQuery, matchedSynonyms);
+        HybridSearchResult searchResult = knowledgeSearchService.hybridSearch(rewrittenQuery, 3);
 
         StringBuilder sb = new StringBuilder();
         sb.append("{\"matchType\":\"").append(searchResult.isFaqDirectMatch() ? "faq_direct" : "hybrid_search").append("\"");
@@ -92,7 +113,14 @@ public class CustomerServiceTools {
             sb.append("]");
         }
 
-        sb.append(",\"query\":\"").append(query).append("\"}");
+        sb.append(",\"query\":").append(escapeJson(originalQuery));
+        sb.append(",\"rewrittenQuery\":").append(escapeJson(rewrittenQuery));
+        sb.append(",\"matchedSynonyms\":[");
+        for (int i = 0; i < matchedSynonyms.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append(escapeJson(matchedSynonyms.get(i)));
+        }
+        sb.append("]}");
         return sb.toString();
     }
 
