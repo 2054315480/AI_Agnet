@@ -62,4 +62,12 @@ public class AdminController {
         Map<String, Object> result = faqManagementService.reloadKnowledge();
         return ResponseEntity.ok(result);
     }
+
+    /**
+     * 手动触发知识库重建：重建 BM25 + FAQ Lucene 索引，并增量写入 PgVector。
+     */
+    @PostMapping("/faq/reindex")
+    public ResponseEntity<Map<String, Object>> reindexFaq() {
+        return ResponseEntity.ok(faqManagementService.reindexKnowledge());
+    }
 }

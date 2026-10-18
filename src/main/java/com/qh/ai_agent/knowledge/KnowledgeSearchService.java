@@ -30,7 +30,9 @@ public class KnowledgeSearchService {
     private double similarityThreshold;
 
     private final KnowledgeBaseLoader knowledgeBaseLoader;
-    private final UnifiedKbLoader unifiedKbLoader;
+    private final UnifiedKbLoader unifiedKbLoader;
+
+    private final FaqLuceneIndex faqLuceneIndex;
 
     @Autowired(required = false)
     @Qualifier("csVectorStore")
@@ -64,76 +66,119 @@ public class KnowledgeSearchService {
         return new SearchResult(results, false, suggested);
     }
 
-    /**
-     * Tier 1: FAQ 直接匹配
-     * 先搜索 classpath FAQ（KnowledgeBaseLoader），再搜索比赛知识库（UnifiedKbLoader），取最佳匹配
-     */
-    private FaqMatchResult tryFaqDirectMatch(String query) {
-        String q = query.toLowerCase().trim();
-
-        Document bestDoc = null;
-        KbEntry bestKbEntry = null;
-        double bestScore = 0;
-        String bestCategory = null;
-
-        // 1. 搜索 classpath FAQ 文档
-        List<Document> docs = getDocs();
-        for (Document doc : docs) {
-            Map<String, Object> meta = doc.getMetadata();
-            if (meta == null || !"FAQ".equals(meta.get("doc_type"))) continue;
-            if (!meta.containsKey("question")) continue;
-
-            String question = meta.get("question").toString().toLowerCase().trim();
-            String category = (String) meta.getOrDefault("category", "");
-
-            double score = computeFaqSimilarity(q, question);
-            if (score > bestScore) {
-                bestScore = score;
-                bestDoc = doc;
-                bestKbEntry = null;
-                bestCategory = category;
-            }
-        }
-
-        // 2. 搜索比赛知识库（UnifiedKbLoader，包含 data/data/knowledge_base/ 下所有行业）
-        List<KbEntry> kbEntries = unifiedKbLoader.loadAll();
-        for (KbEntry entry : kbEntries) {
-            if (entry.getQuestion() == null || entry.getQuestion().isBlank()) continue;
-
-            String question = entry.getQuestion().toLowerCase().trim();
-            double score = computeFaqSimilarity(q, question);
-            if (score > bestScore) {
-                bestScore = score;
-                bestDoc = null;
-                bestKbEntry = entry;
-                bestCategory = entry.getCategory();
-            }
-        }
-
-        if (bestScore >= 0.6) {
-            KnowledgeSearchResult result;
-            if (bestKbEntry != null) {
-                // 来自比赛知识库
-                String content = "Q: " + bestKbEntry.getQuestion() + "\nA: " + bestKbEntry.getAnswer();
-                result = new KnowledgeSearchResult(
-                        content,
-                        bestKbEntry.getSourceFile() != null ? bestKbEntry.getSourceFile() : "未知来源",
-                        "FAQ",
-                        bestKbEntry.getCategory() != null ? bestKbEntry.getCategory() : "未分类",
-                        bestKbEntry.getChunkIndex(),
-                        bestScore,
-                        bestKbEntry.getKbId()
-                );
-            } else {
-                // 来自 classpath FAQ
-                result = KnowledgeSearchResult.from(bestDoc, bestScore);
-            }
-            return new FaqMatchResult(result, bestCategory);
-        }
-
-        return null;
-    }
-
+    /**
+     * Tier 1: FAQ 直接匹配。
+     *
+     * 第一优先级：FaqLuceneIndex 独立 Lucene BM25 索引（只索引 FAQ 的 question）；
+     * 第二优先级：原有自研字符串相似度，作为索引未启用、未命中或异常时的兜底。
+     */
+    private FaqMatchResult tryFaqDirectMatch(String query) {
+        FaqMatchResult luceneMatch = tryFaqLuceneMatch(query);
+        if (luceneMatch != null) {
+            return luceneMatch;
+        }
+        return tryFaqSimilarityMatch(query);
+    }
+
+    /**
+     * Tier 1A: FAQ 独立 Lucene BM25 检索。
+     * 命中完全来自 Lucene 倒排索引，不再扫描字符串相似度。
+     */
+    private FaqMatchResult tryFaqLuceneMatch(String query) {
+        if (query == null || query.isBlank() || faqLuceneIndex == null || !faqLuceneIndex.isEnabled()) {
+            return null;
+        }
+        try {
+            List<FaqLuceneIndex.FaqHit> hits = faqLuceneIndex.search(query, 3);
+            if (hits.isEmpty()) {
+                return null;
+            }
+            FaqLuceneIndex.FaqHit hit = hits.get(0);
+            KnowledgeSearchResult result = new KnowledgeSearchResult(
+                    hit.content(),
+                    hit.source() != null ? hit.source() : "未知来源",
+                    "FAQ",
+                    hit.category() != null ? hit.category() : "未分类",
+                    hit.chunkIndex(),
+                    hit.score(),
+                    hit.kbId()
+            );
+            log.info("[KnowledgeSearch] Tier1 FAQ Lucene BM25 命中: query='{}', score={}, kbId={}",
+                    query, hit.score(), hit.kbId());
+            return new FaqMatchResult(result, hit.category());
+        } catch (Exception e) {
+            log.warn("[KnowledgeSearch] FAQ Lucene 检索异常，回退自研相似度: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Tier 1B: 原有自研字符串相似度兜底。
+     * 先搜索 classpath/外部 FAQ（KnowledgeBaseLoader），再搜索比赛知识库（UnifiedKbLoader），取最佳匹配。
+     */
+    private FaqMatchResult tryFaqSimilarityMatch(String query) {
+        String q = query.toLowerCase().trim();
+
+        Document bestDoc = null;
+        KbEntry bestKbEntry = null;
+        double bestScore = 0;
+        String bestCategory = null;
+
+        // 1. 搜索 classpath FAQ 与管理员上传的 FAQ 文档
+        List<Document> docs = getDocs();
+        for (Document doc : docs) {
+            Map<String, Object> meta = doc.getMetadata();
+            if (meta == null || !"FAQ".equals(meta.get("doc_type"))) continue;
+            if (!meta.containsKey("question")) continue;
+
+            String question = meta.get("question").toString().toLowerCase().trim();
+            String category = (String) meta.getOrDefault("category", "");
+
+            double score = computeFaqSimilarity(q, question);
+            if (score > bestScore) {
+                bestScore = score;
+                bestDoc = doc;
+                bestKbEntry = null;
+                bestCategory = category;
+            }
+        }
+
+        // 2. 搜索比赛知识库（UnifiedKbLoader，包含 data/data/knowledge_base/ 下所有行业）
+        List<KbEntry> kbEntries = unifiedKbLoader.loadAll();
+        for (KbEntry entry : kbEntries) {
+            if (entry.getQuestion() == null || entry.getQuestion().isBlank()) continue;
+
+            String question = entry.getQuestion().toLowerCase().trim();
+            double score = computeFaqSimilarity(q, question);
+            if (score > bestScore) {
+                bestScore = score;
+                bestDoc = null;
+                bestKbEntry = entry;
+                bestCategory = entry.getCategory();
+            }
+        }
+
+        if (bestScore >= 0.6) {
+            KnowledgeSearchResult result;
+            if (bestKbEntry != null) {
+                String content = "Q: " + bestKbEntry.getQuestion() + "\nA: " + bestKbEntry.getAnswer();
+                result = new KnowledgeSearchResult(
+                        content,
+                        bestKbEntry.getSourceFile() != null ? bestKbEntry.getSourceFile() : "未知来源",
+                        "FAQ",
+                        bestKbEntry.getCategory() != null ? bestKbEntry.getCategory() : "未分类",
+                        bestKbEntry.getChunkIndex(),
+                        bestScore,
+                        bestKbEntry.getKbId()
+                );
+            } else {
+                result = KnowledgeSearchResult.from(bestDoc, bestScore);
+            }
+            return new FaqMatchResult(result, bestCategory);
+        }
+
+        return null;
+    }
     /**
      * FAQ 相似度计算：精确匹配优先 → 双向包含 + 关键词 + 长度比例 + 编辑距离
      *

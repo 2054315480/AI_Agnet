@@ -2,40 +2,56 @@ package com.qh.ai_agent.knowledge.retriever;
 
 import com.qh.ai_agent.knowledge.parser.KbEntry;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
-import org.apache.lucene.document.*;
-import org.apache.lucene.index.*;
+import org.apache.lucene.document.Document;
+import org.apache.lucene.document.Field;
+import org.apache.lucene.document.StoredField;
+import org.apache.lucene.document.StringField;
+import org.apache.lucene.document.TextField;
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.QueryParser;
-import org.apache.lucene.search.*;
+import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.Query;
+import org.apache.lucene.search.ScoreDoc;
+import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * 基于 Apache Lucene 的 BM25 稀疏检索器。
- * 对知识库条目的 question 字段建索引，使用结巴中文分词。
+ * 对知识库条目的 question 字段建索引，分析器使用 ChineseBigramAnalyzer。
  *
- * 索引目录：./kb-lucene-index（可配置）
+ * 注意：ChineseBigramAnalyzer 的真实实现是 StandardTokenizer + CJKBigramFilter，
+ * 不是结巴分词，项目也没有引入 jieba 依赖。
+ *
+ * 索引目录：./kb-lucene-index（可通过 cs.retrieval.bm25-index-dir 配置）。
  */
 @Slf4j
 @Component
 public class Bm25Retriever {
 
-    private final JiebaAnalyzer analyzer;
+    private final ChineseBigramAnalyzer analyzer;
     private Directory indexDir;
     private boolean indexReady = false;
 
     /**
      * 最少命中词比例（0~1）。
      * 原实现用 QueryParser 的默认 OR 语义：命中任意一个词就算一条，
-     * 于是"你们卖不卖挖掘机"这类无关问题也能召回，无法判定"知识库没命中"。
+     * 于是无关问题也能召回，无法判定知识库没命中。
      * 改为 BooleanQuery + minimumNumberShouldMatch，要求命中足够比例的查询词。
      * 设为 0 可退回旧的 OR 行为。
      */
@@ -43,25 +59,26 @@ public class Bm25Retriever {
     private double minMatchRatio;
 
     public Bm25Retriever() {
-        this.analyzer = new JiebaAnalyzer();
+        this.analyzer = new ChineseBigramAnalyzer();
     }
 
     /**
      * 为知识库条目构建 Lucene 索引。
      * 在 UnifiedKbLoader 加载完毕后调用。
      *
-     * @param entries  所有知识库条目
+     * @param entries   所有知识库条目
      * @param indexPath 索引存储路径
      */
-    public void buildIndex(List<KbEntry> entries, String indexPath) throws IOException {
+    public synchronized void buildIndex(List<KbEntry> entries, String indexPath) throws IOException {
         Path path = Path.of(indexPath);
-        this.indexDir = MMapDirectory.open(path);
+        Files.createDirectories(path);
+        Directory newDir = MMapDirectory.open(path);
 
         IndexWriterConfig config = new IndexWriterConfig(analyzer);
         config.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
         // Lucene 9.x 默认使用 BM25Similarity，无需显式设置
 
-        try (IndexWriter writer = new IndexWriter(indexDir, config)) {
+        try (IndexWriter writer = new IndexWriter(newDir, config)) {
             int count = 0;
             for (KbEntry entry : entries) {
                 if (entry.getQuestion() == null || entry.getQuestion().isBlank()) {
@@ -88,9 +105,19 @@ public class Bm25Retriever {
                 count++;
             }
             writer.commit();
-            log.info("[Bm25Retriever] 索引构建完成: {} 条文档 → {}", count, indexPath);
+            log.info("[Bm25Retriever] 索引构建完成: {} 条文档 -> {}", count, indexPath);
         }
-        indexReady = true;
+
+        Directory oldDir = this.indexDir;
+        this.indexDir = newDir;
+        this.indexReady = true;
+        if (oldDir != null) {
+            try {
+                oldDir.close();
+            } catch (IOException e) {
+                log.warn("[Bm25Retriever] 关闭旧索引目录异常: {}", e.getMessage());
+            }
+        }
     }
 
     /**
@@ -100,7 +127,7 @@ public class Bm25Retriever {
      * @param topK  返回的最大结果数
      * @return 按 BM25 分数降序排列的检索结果
      */
-    public List<RetrievalResult> search(String query, int topK) {
+    public synchronized List<RetrievalResult> search(String query, int topK) {
         if (!indexReady || indexDir == null) {
             log.warn("[Bm25Retriever] 索引未就绪，返回空结果");
             return List.of();
@@ -147,7 +174,7 @@ public class Bm25Retriever {
     }
 
     /**
-     * 构造查询：用"最少命中词数"约束，抑制 OR 语义带来的弱相关召回。
+     * 构造查询：用最少命中词数约束，抑制 OR 语义带来的弱相关召回。
      */
     private Query buildQuery(String query) throws Exception {
         List<String> tokens = tokenize(query);
@@ -161,7 +188,7 @@ public class Bm25Retriever {
         }
         int minShouldMatch = Math.max(1, (int) Math.ceil(tokens.size() * minMatchRatio));
         builder.setMinimumNumberShouldMatch(minShouldMatch);
-        log.debug("[Bm25Retriever] query='{}' 分词数={} 最少命中词数={}", query, tokens.size(), minShouldMatch);
+        log.debug("[Bm25Retriever] query={} 分词数={} 最少命中词数={}", query, tokens.size(), minShouldMatch);
         return builder.build();
     }
 
@@ -186,7 +213,6 @@ public class Bm25Retriever {
      * 转义 Lucene 查询中的特殊字符，防止解析错误。
      */
     private String escapeQuery(String query) {
-        // 转义 Lucene 特殊字符
         return query.replaceAll("([+\\-!(){}\\[\\]^\"~*?:\\\\]|&&|\\|\\|)", "\\\\$1");
     }
 }
