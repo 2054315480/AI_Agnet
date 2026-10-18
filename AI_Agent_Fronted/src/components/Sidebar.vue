@@ -14,11 +14,17 @@
         </svg>
       </button>
       <div v-if="open" class="sidebar-brand">
-        <svg width="28" height="28" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="40" height="40" rx="10" fill="var(--accent-primary)" />
-          <text x="20" y="26" text-anchor="middle" fill="#fff" font-size="16" font-weight="700" font-family="system-ui">AI</text>
-        </svg>
-        <span class="brand-text">AI Agent</span>
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7A2.5 2.5 0 0 1 17.5 16H10l-4.2 3.2A.6.6 0 0 1 5 18.7V16"/>
+            <path d="M8 8.5h8M8 11.5h5"/>
+          </svg>
+        </span>
+        <div class="brand-copy">
+          <span class="brand-text">客服工作台</span>
+          <span class="brand-sub">Service Desk</span>
+        </div>
       </div>
     </div>
 
@@ -51,6 +57,15 @@
 
       <!-- Conversation history -->
       <div class="sidebar-section history-section">
+        <div class="conv-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"/>
+            <line x1="16.5" y1="16.5" x2="21" y2="21"/>
+          </svg>
+          <input v-model="query" type="search" placeholder="搜索会话" aria-label="搜索会话" />
+        </div>
+        <div class="section-label">会话</div>
         <div
           v-for="group in groupedConversations"
           :key="group.label"
@@ -82,6 +97,7 @@
     <!-- Bottom -->
     <div class="sidebar-bottom">
       <ThemeToggle v-if="open" />
+      <div v-if="open" class="section-label tools-label">工具</div>
       <button v-if="open" class="sidebar-action-btn" @click="$emit('openBatchTest')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
@@ -109,13 +125,13 @@
         <span class="user-name">{{ currentUser.username }}</span>
         <button class="logout-btn" @click="handleLogout">退出</button>
       </div>
-      <div v-if="open" class="sidebar-footer-text">智能客服 Agent v2.0</div>
+      <div v-if="open" class="sidebar-footer-text">v4.2 · 知识库在线</div>
     </div>
   </aside>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useConversations } from '../composables/useConversations.js'
 import { useAuth } from '../api/auth.js'
@@ -141,7 +157,16 @@ const { user: currentUser, logout } = useAuth()
 
 const router = useRouter()
 
-const groupedConversations = computed(() => getGroupedConversations(activeAgent.value))
+const query = ref('')
+
+const groupedConversations = computed(() => {
+  const groups = getGroupedConversations(activeAgent.value)
+  const kw = query.value.trim().toLowerCase()
+  if (!kw) return groups
+  return groups
+    .map(g => ({ ...g, items: g.items.filter(c => (c.title || '未命名会话').toLowerCase().includes(kw)) }))
+    .filter(g => g.items.length > 0)
+})
 
 function switchAgent(agent) {
   setActiveAgent(agent)
@@ -472,5 +497,158 @@ function handleLogout() {
 .logout-btn:hover {
   color: #ff6b6b;
   border-color: #ff6b6b;
+}
+
+/* ================================================================
+   v6 覆写：案头风格
+   ================================================================ */
+.sidebar {
+  border-right: 1px solid var(--rule);
+  background: var(--bg-sidebar);
+}
+
+.sidebar-brand { align-items: center; }
+
+.brand-mark {
+  width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  color: var(--accent);
+  background: var(--bg-step);
+  flex-shrink: 0;
+}
+
+.brand-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+
+.brand-text {
+  font-family: var(--font-serif);
+  font-size: 0.9375rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.brand-sub {
+  font-size: 0.5625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.section-label {
+  padding: 2px 10px 6px;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  user-select: none;
+}
+
+.tools-label { padding-top: 10px; }
+
+/* 会话搜索 */
+.conv-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 8px 10px;
+  padding: 0 9px;
+  height: 32px;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  background: transparent;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
+}
+
+.conv-search:focus-within {
+  border-color: var(--accent-border);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.conv-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+}
+
+.conv-search input::placeholder { color: var(--text-tertiary); }
+.conv-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+/* 新建对话：实心墨块 + 青瓷字，主操作更明确 */
+.new-chat-btn {
+  border: 1px solid var(--border-primary);
+  background: var(--bg-step);
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  transition: background var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
+}
+
+.new-chat-btn:hover {
+  background: var(--bg-active);
+  border-color: var(--accent-border);
+}
+
+.new-chat-btn svg { color: var(--accent); }
+
+/* 历史项：用左侧细线表示选中，而不是整块高亮 */
+.history-item {
+  position: relative;
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+}
+
+.history-item::before {
+  content: "";
+  position: absolute;
+  left: 2px; top: 50%;
+  width: 0; height: 14px;
+  transform: translateY(-50%);
+  background: var(--accent);
+  border-radius: 1px;
+  transition: width var(--duration-fast) var(--ease-out);
+}
+
+.history-item.active { background: var(--bg-hover); color: var(--text-primary); }
+.history-item.active::before { width: 2px; }
+.history-item:hover { background: var(--bg-hover); }
+
+.history-group-label {
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* 底部工具按钮：更克制的描边按钮 */
+.sidebar-action-btn {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
+}
+
+.sidebar-action-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-secondary);
+  color: var(--text-primary);
+}
+
+.sidebar-footer-text {
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  opacity: 0.8;
 }
 </style>

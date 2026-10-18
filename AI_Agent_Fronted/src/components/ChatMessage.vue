@@ -1,32 +1,17 @@
 ﻿<template>
   <div class="chat-message" :class="[isUser ? 'user' : 'ai', `agent-${agent}`]">
     <!-- Avatar -->
-    <div class="avatar" :class="{ 'user-avatar': isUser }">
-      <template v-if="isUser">
-        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="20" cy="20" r="20" fill="var(--accent-primary)" opacity="0.15"/>
-          <circle cx="20" cy="15" r="6" fill="var(--accent-primary)"/>
-          <path d="M8 34c0-6.627 5.373-12 12-12s12 5.373 12 12" fill="var(--accent-primary)"/>
-        </svg>
-      </template>
-      <template v-else-if="agent === 'love'">
-        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="20" cy="20" r="20" fill="var(--accent-love-bg)"/>
-          <path d="M20 30l-1.5-1.3C12 23.5 8 19.8 8 15.5 8 12.4 10.4 10 13.5 10c1.8 0 3.5.8 4.5 2.2L20 14.5l2-2.3c1-1.4 2.7-2.2 4.5-2.2C29.6 10 32 12.4 32 15.5c0 4.3-4 8-10.5 13.2L20 30z" fill="var(--accent-love)"/>
-        </svg>
-      </template>
-      <template v-else>
-        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="40" height="40" rx="10" fill="var(--accent-manus-bg)"/>
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" transform="translate(8, 2) scale(0.8)" stroke="var(--accent-manus)" stroke-width="2" fill="none"/>
-          <circle cx="13" cy="27" r="1.5" fill="var(--accent-manus)"/>
-          <circle cx="20" cy="27" r="1.5" fill="var(--accent-manus)"/>
-          <circle cx="27" cy="27" r="1.5" fill="var(--accent-manus)"/>
-        </svg>
-      </template>
+    <div class="avatar" :class="{ 'user-avatar': isUser }" aria-hidden="true">
+      <span class="avatar-glyph">{{ isUser ? '我' : '客' }}</span>
     </div>
     <!-- Bubble -->
     <div class="bubble-wrap">
+      <!-- 助手消息头：名称与时间放在顶部，更接近工单/记录式排版 -->
+      <div v-if="!isUser" class="msg-head">
+        <span class="msg-author">客服工作台</span>
+        <span v-if="time" class="msg-head-time">{{ time }}</span>
+      </div>
+
       <!-- Intent tag -->
       <div v-if="intentInfo && !isUser" class="intent-tag" :class="intentTagClass">
         {{ intentInfo.displayName || intentInfo.intent }}
@@ -88,10 +73,10 @@
           </svg>
           <span class="thinking-title">
             <template v-if="loading">
-              正在思考... {{ thinkingSteps.length }} 步
+              正在处理 · {{ thinkingSteps.length }} 步
             </template>
             <template v-else>
-              思考过程（{{ thinkingSteps.length }} 步）
+              处理过程 · {{ thinkingSteps.length }} 步
             </template>
           </span>
         </button>
@@ -134,10 +119,10 @@
           <span></span><span></span><span></span>
         </div>
       </div>
-      <div v-if="time" class="msg-time">{{ time }}</div>
+      <div v-if="time && isUser" class="msg-time">{{ time }}</div>
       <!-- Suggested questions -->
       <div v-if="!isUser && suggestedQuestions && suggestedQuestions.length > 0 && !loading" class="suggested-questions">
-        <div class="suggested-label">您可能还想问：</div>
+        <div class="suggested-label">继续追问</div>
         <button
           v-for="(q, idx) in suggestedQuestions"
           :key="idx"
@@ -895,5 +880,265 @@ const renderedContent = computed(() => {
 .suggested-item:hover {
   color: var(--accent-primary);
   background: rgba(31, 111, 235, 0.04);
+}
+
+/* ================================================================
+   v6 覆写：案头风格
+   ================================================================ */
+.chat-message {
+  animation: rise 280ms var(--ease-out) both;
+}
+
+.chat-message.ai { align-items: flex-start; }
+
+/* 排版式头像：方形、发丝线、衬线字 */
+.avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-step);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.avatar-glyph {
+  font-family: var(--font-serif);
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+
+.chat-message.user .avatar {
+  background: var(--bg-bubble-user);
+  border-color: transparent;
+}
+
+.chat-message.user .avatar-glyph { color: var(--text-user-bubble); opacity: 0.85; }
+
+/* 消息头 */
+.msg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.msg-author {
+  font-family: var(--font-serif);
+  font-size: 0.8125rem;
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.msg-head-time {
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 气泡：助手用"纸页"质感（浅底 + 发丝线），用户用墨块 */
+.bubble {
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.chat-message.ai .bubble {
+  background: var(--bg-step);
+  border: 1px solid var(--rule);
+  color: var(--text-primary);
+  border-top-left-radius: 3px;
+}
+
+.chat-message.user .bubble {
+  background: var(--bg-bubble-user);
+  border: 1px solid transparent;
+  color: var(--text-user-bubble);
+  border-top-right-radius: 3px;
+}
+
+.bubble-text {
+  line-height: 1.8;
+  font-size: 0.9rem;
+}
+
+.bubble-text :deep(p) + :deep(p) { margin-top: 0.65em; }
+
+/* 流式光标：方块闪烁，不用光晕 */
+.streaming-cursor::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 0.95em;
+  margin-left: 2px;
+  vertical-align: -0.12em;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: caret-blink 1s steps(1) infinite;
+}
+
+/* 意图标签：安静的小 chip */
+.intent-tag {
+  background: transparent;
+  border: 1px solid var(--border-secondary);
+  color: var(--text-tertiary);
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+}
+
+.intent-confidence {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* 转人工：黄铜色提示，像一张便签 */
+.handoff-alert {
+  background: var(--accent-love-bg);
+  border: 1px solid var(--accent-love-border);
+  color: var(--accent-love);
+  border-radius: var(--radius-sm);
+}
+
+/* 澄清卡片：文件式分组 */
+.clarification-card {
+  background: transparent;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+
+.clarification-title {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+}
+
+.clarification-option {
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-secondary);
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.clarification-option:hover {
+  border-color: var(--accent-border);
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* 出处：脚注风格 */
+.source-citations {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+  color: var(--text-tertiary);
+  font-size: 0.6875rem;
+  gap: 6px;
+}
+
+.source-tag {
+  border: 1px solid var(--border-secondary);
+  background: transparent;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-xs);
+  padding: 1px 6px;
+  font-size: 0.6875rem;
+}
+
+/* 处理过程：像一段运行日志 */
+.thinking-block {
+  border: 1px solid var(--rule);
+  background: transparent;
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.thinking-header {
+  padding: 8px 10px;
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+}
+
+.thinking-header:hover { background: var(--bg-hover); color: var(--text-secondary); }
+
+.thinking-title { font-weight: var(--weight-medium); }
+
+.thinking-body-inner { padding: 4px 12px 10px; }
+
+.thinking-step {
+  position: relative;
+  padding-left: 14px;
+  border-left: 1px solid var(--rule);
+  margin-left: 4px;
+}
+
+.step-label-text {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.step-text {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.step-icon { opacity: 0.65; font-size: 0.75rem; }
+
+/* 打字指示器 */
+.typing-indicator span {
+  background: var(--text-tertiary);
+  animation: dot-breathe 1.2s var(--ease-in-out) infinite;
+}
+
+.typing-indicator span:nth-child(2) { animation-delay: 0.15s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.3s; }
+
+/* 推荐追问：行式，不是按钮堆 */
+.suggested-questions {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+  gap: 2px;
+}
+
+.suggested-label {
+  font-size: 0.625rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.suggested-item {
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+}
+
+.suggested-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.msg-time {
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  margin-top: 4px;
 }
 </style>

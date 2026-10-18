@@ -29,19 +29,19 @@
       <!-- 总览统计卡片 -->
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-icon" style="background: rgba(31, 111, 235, 0.15); color: var(--accent-primary);">
+          <div class="stat-icon stat-icon-accent">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
             </svg>
           </div>
           <div class="stat-info">
-            <div class="stat-value">{{ overview.totalConversations || 0 }}</div>
+            <div class="stat-value tnum">{{ overview.totalConversations || 0 }}</div>
             <div class="stat-label">总会话数</div>
           </div>
         </div>
 
         <div class="stat-card">
-          <div class="stat-icon" style="background: rgba(248, 81, 73, 0.15); color: var(--danger);">
+          <div class="stat-icon stat-icon-danger">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
               <circle cx="8.5" cy="7" r="4"/>
@@ -50,25 +50,25 @@
             </svg>
           </div>
           <div class="stat-info">
-            <div class="stat-value">{{ overview.handoffRate || '0.00' }}</div>
+            <div class="stat-value tnum">{{ overview.handoffRate || '0.00' }}</div>
             <div class="stat-label">转人工率 ({{ overview.handoffConversations || 0 }} 次)</div>
           </div>
         </div>
 
         <div class="stat-card">
-          <div class="stat-icon" style="background: rgba(63, 184, 201, 0.15); color: var(--accent-manus);">
+          <div class="stat-icon stat-icon-accent">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
             </svg>
           </div>
           <div class="stat-info">
-            <div class="stat-value">{{ overview.avgTurns || '0.0' }}</div>
+            <div class="stat-value tnum">{{ overview.avgTurns || '0.0' }}</div>
             <div class="stat-label">平均对话轮次</div>
           </div>
         </div>
 
         <div class="stat-card">
-          <div class="stat-icon" style="background: rgba(247, 120, 186, 0.15); color: var(--accent-love);">
+          <div class="stat-icon stat-icon-love">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/>
               <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
@@ -76,20 +76,20 @@
             </svg>
           </div>
           <div class="stat-info">
-            <div class="stat-value">{{ overview.clarificationCount || 0 }}</div>
+            <div class="stat-value tnum">{{ overview.clarificationCount || 0 }}</div>
             <div class="stat-label">澄清触发次数</div>
           </div>
         </div>
 
         <div class="stat-card">
-          <div class="stat-icon" style="background: rgba(46, 160, 67, 0.15); color: #2ea043;">
+          <div class="stat-icon stat-icon-success">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
               <polyline points="22 4 12 14.01 9 11.01"/>
             </svg>
           </div>
           <div class="stat-info">
-            <div class="stat-value">{{ overview.avgConfidence || 'N/A' }}</div>
+            <div class="stat-value tnum">{{ overview.avgConfidence || 'N/A' }}</div>
             <div class="stat-label">平均置信度</div>
           </div>
         </div>
@@ -240,7 +240,7 @@
               class="replay-msg"
               :class="msg.role"
             >
-              <div class="replay-role">{{ msg.role === 'user' ? '用户' : 'AI' }}</div>
+              <div class="replay-role">{{ msg.role === 'user' ? '用户' : '客服' }}</div>
               <div class="replay-content">{{ msg.content }}</div>
               <div v-if="msg.intent || msg.confidence || msg.isHandoff" class="replay-meta">
                 <span v-if="msg.intent" class="intent-tag">{{ formatIntent(msg.intent) }}</span>
@@ -316,8 +316,8 @@ function formatIntent(intent) {
 
 /* ---- 柱状图颜色 ---- */
 const barColors = [
-  '#1f6feb', '#f85149', '#3fb8c9', '#f778ba', '#2ea043',
-  '#e3b341', '#a371f7', '#db6d28', '#79c0ff', '#d2a8ff'
+  'var(--accent)', 'var(--accent-love)', 'var(--success)',
+  'var(--warning)', 'var(--danger)', 'var(--text-tertiary)'
 ]
 
 function getBarColor(intent) {
@@ -503,16 +503,18 @@ onMounted(loadData)
 }
 
 .back-btn:hover {
-  color: var(--accent-primary);
-  border-color: var(--accent-primary);
+  color: var(--accent);
+  border-color: var(--accent);
   background: var(--bg-hover);
 }
 
 .page-title {
   flex: 1;
+  font-family: var(--font-serif);
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
 }
 
 .export-btn {
@@ -523,8 +525,8 @@ onMounted(loadData)
   border-radius: var(--radius-sm);
   font-size: 0.8125rem;
   font-weight: 500;
-  color: #fff;
-  background: var(--accent-primary);
+  color: var(--text-inverse);
+  background: var(--accent);
   transition: var(--transition);
 }
 
@@ -548,7 +550,7 @@ onMounted(loadData)
   width: 28px;
   height: 28px;
   border: 3px solid var(--border-primary);
-  border-top-color: var(--accent-primary);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -571,14 +573,14 @@ onMounted(loadData)
   gap: 14px;
   padding: 18px 16px;
   background: var(--bg-sidebar);
-  border: 1px solid var(--border-secondary);
+  border: 1px solid var(--rule);
   border-radius: var(--radius);
   transition: var(--transition);
 }
 
 .stat-card:hover {
-  border-color: var(--border-primary);
-  box-shadow: var(--shadow-sm);
+  background: var(--bg-hover);
+  border-color: var(--accent-border);
 }
 
 .stat-icon {
@@ -591,11 +593,18 @@ onMounted(loadData)
   flex-shrink: 0;
 }
 
+.stat-icon-accent   { color: var(--accent); background: var(--accent-bg); }
+.stat-icon-danger   { color: var(--danger); background: var(--danger-bg); }
+.stat-icon-love     { color: var(--accent-love); background: var(--accent-love-bg); }
+.stat-icon-success  { color: var(--success); background: var(--success-bg); }
+
 .stat-value {
+  font-family: var(--font-serif);
   font-size: 1.35rem;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-label {
@@ -607,17 +616,19 @@ onMounted(loadData)
 /* ===== 通用区块卡片 ===== */
 .section-card {
   background: var(--bg-sidebar);
-  border: 1px solid var(--border-secondary);
+  border: 1px solid var(--rule);
   border-radius: var(--radius);
   padding: 20px 24px;
   margin-bottom: 24px;
 }
 
 .section-title {
+  font-family: var(--font-serif);
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 16px;
+  letter-spacing: var(--tracking-tight);
 }
 
 .empty-hint {
@@ -652,13 +663,13 @@ onMounted(loadData)
   flex: 1;
   height: 22px;
   background: var(--bg-input);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   overflow: hidden;
 }
 
 .intent-bar-fill {
   height: 100%;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   transition: width 0.6s ease;
   min-width: 2px;
 }
@@ -680,7 +691,7 @@ onMounted(loadData)
   flex-wrap: wrap;
   margin-bottom: 16px;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--border-secondary);
+  border-bottom: 1px solid var(--rule);
 }
 
 .filter-group {
@@ -709,7 +720,7 @@ onMounted(loadData)
 }
 
 .filter-select:focus {
-  border-color: var(--accent-primary);
+  border-color: var(--accent);
 }
 
 .filter-btn-group {
@@ -739,8 +750,8 @@ onMounted(loadData)
 }
 
 .filter-btn.active {
-  color: #fff;
-  background: var(--accent-primary);
+  color: var(--text-inverse);
+  background: var(--accent);
 }
 
 /* ===== 会话列表表格 ===== */
@@ -759,14 +770,14 @@ onMounted(loadData)
   padding: 10px 12px;
   font-weight: 600;
   color: var(--text-secondary);
-  border-bottom: 1px solid var(--border-primary);
+  border-bottom: 1px solid var(--rule);
   white-space: nowrap;
 }
 
 .session-table td {
   padding: 10px 12px;
   color: var(--text-primary);
-  border-bottom: 1px solid var(--border-secondary);
+  border-bottom: 1px solid var(--rule);
   white-space: nowrap;
 }
 
@@ -781,13 +792,13 @@ onMounted(loadData)
 }
 
 .sortable:hover {
-  color: var(--accent-primary);
+  color: var(--accent);
 }
 
 .sort-icon {
   font-size: 0.6rem;
   margin-left: 4px;
-  color: var(--accent-primary);
+  color: var(--accent);
 }
 
 .cell-title {
@@ -810,17 +821,17 @@ onMounted(loadData)
 .intent-tag {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   font-size: 0.75rem;
   font-weight: 500;
-  background: rgba(31, 111, 235, 0.15);
-  color: var(--accent-primary);
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
 .badge {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   font-size: 0.7rem;
   font-weight: 600;
 }
@@ -831,13 +842,13 @@ onMounted(loadData)
 }
 
 .badge-ok {
-  background: rgba(46, 160, 67, 0.15);
-  color: #2ea043;
+  background: var(--success-bg);
+  color: var(--success);
 }
 
 .badge-warn {
-  background: rgba(227, 179, 65, 0.15);
-  color: #e3b341;
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 
 .text-muted {
@@ -849,15 +860,15 @@ onMounted(loadData)
   padding: 4px 10px;
   border-radius: var(--radius-xs);
   font-size: 0.75rem;
-  color: var(--accent-primary);
+  color: var(--accent);
   border: 1px solid var(--border-primary);
   transition: var(--transition);
 }
 
 .action-btn:hover {
-  background: var(--accent-primary);
-  color: #fff;
-  border-color: var(--accent-primary);
+  background: var(--accent);
+  color: var(--text-inverse);
+  border-color: var(--accent);
 }
 
 /* ===== 分页控件 ===== */
@@ -867,7 +878,7 @@ onMounted(loadData)
   justify-content: center;
   gap: 4px;
   padding: 16px 0 4px;
-  border-top: 1px solid var(--border-secondary);
+  border-top: 1px solid var(--rule);
   margin-top: 8px;
 }
 
@@ -885,15 +896,15 @@ onMounted(loadData)
 }
 
 .page-btn:hover:not(:disabled) {
-  color: var(--accent-primary);
-  border-color: var(--accent-primary);
+  color: var(--accent);
+  border-color: var(--accent);
   background: var(--bg-hover);
 }
 
 .page-btn.active {
-  color: #fff;
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
+  color: var(--text-inverse);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .page-btn:disabled {
@@ -928,7 +939,6 @@ onMounted(loadData)
   border-radius: var(--radius);
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-md);
 }
 
 .modal-header {
@@ -936,10 +946,11 @@ onMounted(loadData)
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-secondary);
+  border-bottom: 1px solid var(--rule);
 }
 
 .modal-header h3 {
+  font-family: var(--font-serif);
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -969,7 +980,7 @@ onMounted(loadData)
   gap: 24px;
   padding-bottom: 16px;
   margin-bottom: 16px;
-  border-bottom: 1px solid var(--border-secondary);
+  border-bottom: 1px solid var(--rule);
   font-size: 0.8125rem;
   color: var(--text-secondary);
 }
@@ -984,12 +995,12 @@ onMounted(loadData)
 .replay-msg {
   padding: 12px 16px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-secondary);
+  border: 1px solid var(--rule);
 }
 
 .replay-msg.user {
-  background: rgba(31, 111, 235, 0.08);
-  border-color: rgba(31, 111, 235, 0.2);
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
 }
 
 .replay-msg.assistant {
@@ -1005,11 +1016,11 @@ onMounted(loadData)
 }
 
 .replay-msg.user .replay-role {
-  color: var(--accent-primary);
+  color: var(--accent);
 }
 
 .replay-msg.assistant .replay-role {
-  color: var(--accent-manus);
+  color: var(--text-secondary);
 }
 
 .replay-content {
@@ -1032,7 +1043,7 @@ onMounted(loadData)
   color: var(--text-tertiary);
   padding: 2px 6px;
   background: var(--bg-hover);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 /* ===== 响应式 ===== */

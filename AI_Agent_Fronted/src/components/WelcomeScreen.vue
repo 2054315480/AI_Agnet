@@ -1,56 +1,51 @@
 <template>
   <div class="welcome-screen">
-    <div class="welcome-content">
-      <!-- 品牌区域：大标题 + 副标题，排版层次驱动 -->
-      <div class="hero">
-        <h2 class="hero-title">你好，我是<span class="hero-accent">智能客服</span></h2>
-        <p class="hero-desc">意图识别 · 知识检索 · 智能澄清 — 有问必答，服务至上</p>
-      </div>
-
-      <!-- 能力列表：左对齐，label + description 结构 -->
-      <div class="capabilities">
-        <div class="cap-item">
-          <div class="cap-indicator" style="--cap-color: var(--accent-primary)"></div>
-          <div class="cap-body">
-            <span class="cap-label">意图识别</span>
-            <span class="cap-desc">精准理解用户需求，自动分类 12 种意图类型</span>
-          </div>
+    <div class="welcome-inner">
+      <!-- 工作台标题：衬线 + 明确的下一步，而不是"AI 助手"自我介绍 -->
+      <header class="workbench-head">
+        <div class="eyebrow">
+          <span class="eyebrow-dot"></span>
+          客服工作台
         </div>
-        <div class="cap-item">
-          <div class="cap-indicator" style="--cap-color: #3fb8c9"></div>
-          <div class="cap-body">
-            <span class="cap-label">知识库检索</span>
-            <span class="cap-desc">FAQ 直达 + 语义向量两级检索，附来源标注</span>
-          </div>
-        </div>
-        <div class="cap-item">
-          <div class="cap-indicator" style="--cap-color: #2ea043"></div>
-          <div class="cap-body">
-            <span class="cap-label">智能澄清</span>
-            <span class="cap-desc">意图模糊时主动追问，引导用户精准表达</span>
-          </div>
-        </div>
-      </div>
+        <h2 class="headline">今天处理哪一类咨询？</h2>
+        <p class="sub">
+          先查企业知识库再回答，答复标注出处；信息不足会主动追问，必要时转人工。
+        </p>
+      </header>
 
-      <!-- 分隔线 -->
-      <div class="divider"></div>
-
-      <!-- 快捷入口：右箭头引导的 CTA 按钮 -->
-      <div class="quick-actions">
-        <div class="quick-header">快速开始</div>
-        <button
-          v-for="q in questions"
-          :key="q"
-          class="quick-btn"
-          @click="$emit('quick-send', q)"
+      <!-- 按业务分组的高频问题，点击直接进入对话 -->
+      <div class="prompt-groups">
+        <section
+          v-for="(group, gi) in groups"
+          :key="group.title"
+          class="prompt-group"
+          :style="{ '--gi': gi }"
         >
-          <span class="quick-text">{{ q }}</span>
-          <svg class="quick-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="5" y1="12" x2="19" y2="12"/>
-            <polyline points="12 5 19 12 12 19"/>
-          </svg>
-        </button>
+          <div class="group-title">
+            <span class="group-rule"></span>
+            <span>{{ group.title }}</span>
+          </div>
+          <button
+            v-for="(q, qi) in group.items"
+            :key="q"
+            class="prompt-row"
+            :style="{ '--qi': qi }"
+            @click="$emit('quick-send', q)"
+          >
+            <span class="prompt-text">{{ q }}</span>
+            <svg class="prompt-go" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="5" y1="12" x2="17" y2="12"/>
+              <polyline points="12 7 17 12 12 17"/>
+            </svg>
+          </button>
+        </section>
       </div>
+
+      <footer class="footnote">
+        <span class="footnote-rule"></span>
+        答复均标注出处，未命中知识库时会明确告知并建议转人工
+      </footer>
     </div>
   </div>
 </template>
@@ -60,11 +55,23 @@ import { ref } from 'vue'
 
 defineEmits(['quick-send'])
 
-const questions = ref([
-  '查询一下我的订单状态',
-  '这款产品的保修政策是什么？',
-  '我想申请退款',
-  '帮我推荐一款合适的产品'
+const groups = ref([
+  {
+    title: '订单与物流',
+    items: ['我的订单到哪了？', '想取消一笔还没发货的订单']
+  },
+  {
+    title: '售后与保修',
+    items: ['耳机左耳没声音了，还能保修吗？', '怎么申请退款，多久到账？']
+  },
+  {
+    title: '政策与资费',
+    items: ['退换货政策是怎样的？', '你们客服电话是多少？']
+  },
+  {
+    title: '产品与选购',
+    items: ['帮我推荐一款适合运动时戴的蓝牙耳机']
+  }
 ])
 </script>
 
@@ -72,197 +79,179 @@ const questions = ref([
 .welcome-screen {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 40px 24px;
+  padding: 8vh 28px 40px;
   overflow-y: auto;
 }
 
-.welcome-content {
-  max-width: 480px;
+.welcome-inner {
   width: 100%;
-  animation: contentEnter 0.4s ease;
+  max-width: 640px;
+  animation: rise 420ms var(--ease-out) both;
 }
 
-@keyframes contentEnter {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+/* ===== 标题区 ===== */
+.workbench-head { margin-bottom: 34px; }
 
-/* ===== Hero 区域 ===== */
-.hero {
-  margin-bottom: 32px;
-}
-
-.hero-title {
-  font-size: 1.75rem;
-  font-weight: 800;
-  color: var(--text-primary);
-  line-height: 1.3;
-  margin-bottom: 8px;
-  letter-spacing: -0.3px;
-}
-
-.hero-accent {
-  color: var(--accent-primary);
-}
-
-.hero-desc {
-  font-size: 0.9375rem;
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-
-/* ===== 能力列表 ===== */
-.capabilities {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin-bottom: 24px;
-  border: 1px solid var(--border-secondary);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.cap-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 14px 16px;
-  background: var(--bg-sidebar);
-  transition: background 0.15s ease;
-}
-
-/* 列表项之间用细线分隔 */
-.cap-item + .cap-item {
-  border-top: 1px solid var(--border-secondary);
-}
-
-.cap-item:hover {
-  background: var(--bg-hover);
-}
-
-.cap-indicator {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--cap-color);
-  margin-top: 8px;
-  flex-shrink: 0;
-}
-
-.cap-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.cap-label {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.cap-desc {
-  font-size: 0.8125rem;
-  color: var(--text-tertiary);
-  line-height: 1.5;
-}
-
-/* ===== 分隔线 ===== */
-.divider {
-  height: 1px;
-  background: var(--border-secondary);
-  margin-bottom: 24px;
-}
-
-/* ===== 快捷入口 ===== */
-.quick-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.quick-header {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-tertiary);
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.6875rem;
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 4px;
+  color: var(--text-tertiary);
+  margin-bottom: 14px;
 }
 
-.quick-btn {
+.eyebrow-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.headline {
+  font-family: var(--font-serif);
+  font-size: clamp(1.5rem, 2.4vw, 1.9rem);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.sub {
+  font-size: 0.875rem;
+  line-height: 1.75;
+  color: var(--text-secondary);
+  max-width: 46ch;
+}
+
+/* ===== 分组问题 ===== */
+.prompt-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.prompt-group {
+  animation: rise 420ms var(--ease-out) both;
+  animation-delay: calc(60ms + var(--gi) * 70ms);
+}
+
+.group-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+
+.group-rule {
+  width: 16px;
+  height: 1px;
+  background: var(--rule);
+}
+
+.prompt-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
   width: 100%;
-  padding: 12px 16px;
+  padding: 11px 12px 11px 14px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-secondary);
-  background: transparent;
   color: var(--text-secondary);
   font-size: 0.875rem;
   text-align: left;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  transition: color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out),
+              transform var(--duration-fast) var(--ease-out);
+  animation: rise 380ms var(--ease-out) both;
+  animation-delay: calc(120ms + var(--gi) * 70ms + var(--qi) * 40ms);
 }
 
-.quick-btn:hover {
-  border-color: var(--accent-primary);
-  background: rgba(31, 111, 235, 0.04);
+/* 左侧细线在 hover 时展开，比发光更克制 */
+.prompt-row::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 50%;
+  width: 0; height: 18px;
+  transform: translateY(-50%);
+  background: var(--accent);
+  border-radius: 1px;
+  transition: width var(--duration-fast) var(--ease-out);
+}
+
+.prompt-row:hover {
+  background: var(--bg-hover);
   color: var(--text-primary);
+  transform: translateX(1px);
 }
 
-.quick-btn:hover .quick-arrow {
-  color: var(--accent-primary);
-  transform: translateX(2px);
-}
+.prompt-row:hover::before { width: 2px; }
 
-.quick-text {
-  flex: 1;
-  min-width: 0;
-}
+/* 行之间用发丝线分隔，更像一份清单而不是按钮堆 */
+.prompt-group .prompt-row { border-radius: 0; border-bottom: 1px solid var(--rule); }
+.prompt-group .prompt-row:last-child { border-bottom: 0; }
+.prompt-group .prompt-row:hover { border-radius: var(--radius-xs); }
 
-.quick-arrow {
+.prompt-text { flex: 1; min-width: 0; }
+
+.prompt-go {
   flex-shrink: 0;
   color: var(--text-tertiary);
-  opacity: 0.5;
-  transition: all 0.15s ease;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
-/* ===== 响应式 ===== */
+.prompt-row:hover .prompt-go {
+  opacity: 1;
+  transform: translateX(0);
+  color: var(--accent);
+}
+
+/* ===== 页脚 ===== */
+.footnote {
+  margin-top: 32px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.footnote-rule {
+  width: 14px; height: 1px;
+  background: var(--accent);
+  opacity: 0.7;
+}
+
+.kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid var(--border-primary);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  background: var(--bg-step);
+}
+
+.dot { opacity: 0.5; }
+
 @media (max-width: 768px) {
-  .hero-title {
-    font-size: 1.4rem;
-  }
-
-  .hero-desc {
-    font-size: 0.875rem;
-  }
-
-  .cap-item {
-    padding: 12px 14px;
-  }
-}
-
-@media (max-width: 480px) {
-  .welcome-screen {
-    padding: 24px 16px;
-  }
-
-  .hero-title {
-    font-size: 1.25rem;
-  }
-
-  .hero {
-    margin-bottom: 24px;
-  }
-
-  .capabilities {
-    margin-bottom: 20px;
-  }
+  .welcome-screen { padding: 5vh 18px 28px; }
+  .workbench-head { margin-bottom: 26px; }
+  .prompt-groups { gap: 18px; }
 }
 </style>

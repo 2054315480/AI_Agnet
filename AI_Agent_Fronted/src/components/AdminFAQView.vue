@@ -189,24 +189,40 @@ function formatSize(bytes) {
 
 <style scoped>
 .admin-faq-page {
-  max-width: 720px;
+  /* 作为 flex 子项时必须显式撑满，否则会被内容宽度挤成一窄列 */
+  width: 100%;
+  max-width: 760px;
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: 32px 24px 64px;
   min-height: 100dvh;
+  box-sizing: border-box;
+  align-self: stretch;
   background: var(--bg-chat);
+}
+
+.upload-section,
+.file-list-section,
+.status-msg,
+.loading-state,
+.empty-state {
+  width: 100%;
 }
 
 .admin-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 32px;
+  gap: 14px;
+  margin-bottom: 26px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--rule);
 }
 
 .admin-header h1 {
+  font-family: var(--font-serif);
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
 }
 
 .back-btn {
@@ -231,9 +247,16 @@ function formatSize(bytes) {
 }
 
 .upload-zone {
-  border: 2px dashed var(--border-primary);
-  border-radius: var(--radius-md);
-  padding: 40px 20px;
+  border: 1px dashed var(--border-primary);
+  border-radius: var(--radius);
+  padding: 44px 24px;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
   text-align: center;
   cursor: pointer;
   transition: var(--transition);
@@ -242,8 +265,9 @@ function formatSize(bytes) {
 
 .upload-zone:hover,
 .upload-zone.drag-over {
-  border-color: var(--accent-primary);
-  background: rgba(31, 111, 235, 0.05);
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--text-primary);
 }
 
 .upload-text {
@@ -267,15 +291,15 @@ function formatSize(bytes) {
 }
 
 .status-msg.success {
-  background: rgba(46, 160, 67, 0.1);
-  color: #2ea043;
-  border: 1px solid rgba(46, 160, 67, 0.2);
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid var(--success);
 }
 
 .status-msg.error {
-  background: rgba(248, 81, 73, 0.1);
-  color: #f85149;
-  border: 1px solid rgba(248, 81, 73, 0.2);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger);
 }
 
 /* File list */
@@ -287,9 +311,11 @@ function formatSize(bytes) {
 }
 
 .section-header h2 {
+  font-family: var(--font-serif);
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
 }
 
 .reload-btn {
@@ -300,13 +326,14 @@ function formatSize(bytes) {
   border-radius: var(--radius-sm);
   font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--accent-primary);
-  border: 1px solid var(--accent-primary);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
   transition: var(--transition);
 }
 
 .reload-btn:hover:not(:disabled) {
-  background: rgba(31, 111, 235, 0.1);
+  background: var(--accent-bg);
+  border-color: var(--accent);
 }
 
 .reload-btn:disabled {
@@ -326,7 +353,11 @@ function formatSize(bytes) {
 .file-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--bg-sidebar);
 }
 
 .file-item {
@@ -334,14 +365,17 @@ function formatSize(bytes) {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--rule);
+  background: transparent;
   transition: var(--transition);
 }
 
+.file-item:last-child {
+  border-bottom: none;
+}
+
 .file-item:hover {
-  border-color: var(--border-primary);
+  background: var(--bg-hover);
 }
 
 .file-info {

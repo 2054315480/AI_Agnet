@@ -5,34 +5,38 @@
       <div class="brand-grid"></div>
       <div class="brand-gradient"></div>
       <div class="brand-content">
-        <div class="brand-badge">
-          <svg width="32" height="32" viewBox="0 0 56 56" fill="none">
-            <rect width="56" height="56" rx="14" fill="rgba(255,255,255,0.1)"/>
-            <text x="28" y="36" text-anchor="middle" fill="#fff" font-size="22" font-weight="700" font-family="system-ui">AI</text>
-          </svg>
+        <div class="brand-caption">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7A2.5 2.5 0 0 1 17.5 16H10l-4.2 3.2A.6.6 0 0 1 5 18.7V16"/>
+              <path d="M8 8.5h8M8 11.5h5"/>
+            </svg>
+          </span>
+          <span>Service Desk</span>
         </div>
-        <h1 class="brand-title">AI Agent</h1>
-        <p class="brand-subtitle">智能客服平台</p>
+        <h1 class="brand-title">客服工作台</h1>
+        <p class="brand-subtitle">先查知识库，再回答。每一条答复都能追溯到出处。</p>
         <div class="brand-divider"></div>
         <div class="brand-features">
           <div class="feature-row">
-            <span class="feature-label">意图识别</span>
+            <span class="feature-label">知识库</span>
             <span class="feature-sep"></span>
-            <span class="feature-desc">精准理解用户需求</span>
+            <span class="feature-desc">FAQ 与语义检索，附原文页级出处</span>
           </div>
           <div class="feature-row">
-            <span class="feature-label">知识检索</span>
+            <span class="feature-label">对话</span>
             <span class="feature-sep"></span>
-            <span class="feature-desc">两级检索带来源标注</span>
+            <span class="feature-desc">信息不足先追问，必要时转人工</span>
           </div>
           <div class="feature-row">
-            <span class="feature-label">对话分析</span>
+            <span class="feature-label">复盘</span>
             <span class="feature-sep"></span>
-            <span class="feature-desc">意图统计与日志导出</span>
+            <span class="feature-desc">意图分布、转人工率、会话回放</span>
           </div>
         </div>
       </div>
-      <div class="brand-footer">智能客服 Agent v4.2</div>
+      <div class="brand-footer">v4.2 · 内部使用</div>
     </div>
 
     <!-- 右侧：表单区 -->
@@ -417,4 +421,107 @@ async function handleSubmit() {
     padding: 24px;
   }
 }
+
+/* ================================================================
+   v6 覆写：左栏改成"书封"质感，右栏改成表单卡片
+   ================================================================ */
+.login-brand {
+  background: linear-gradient(170deg, #1C2422 0%, #121715 55%, #0E1211 100%);
+  color: #E9E6DF;
+}
+
+.brand-gradient { opacity: 0.5; }
+.brand-grid { opacity: 0.35; }
+
+.brand-caption {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 26px;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(233,230,223,0.5);
+}
+
+.brand-mark {
+  width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(233,230,223,0.18);
+  border-radius: 8px;
+  color: #8FC0B3;
+  background: rgba(233,230,223,0.04);
+}
+
+.brand-title {
+  font-family: var(--font-serif);
+  font-size: clamp(1.9rem, 2.6vw, 2.5rem);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+  color: #F3F0E9;
+  margin-bottom: 12px;
+}
+
+.brand-subtitle {
+  color: rgba(233,230,223,0.62);
+  font-size: 0.9rem;
+  line-height: 1.75;
+  max-width: 34ch;
+}
+
+.brand-divider {
+  height: 1px;
+  background: rgba(233,230,223,0.12);
+  margin: 26px 0;
+}
+
+.feature-row { align-items: baseline; }
+.feature-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  color: #C2A36B;
+  min-width: 48px;
+}
+.feature-sep { background: rgba(233,230,223,0.14); }
+.feature-desc { color: rgba(233,230,223,0.55); font-size: 0.8125rem; }
+.brand-footer { color: rgba(233,230,223,0.3); letter-spacing: 0.12em; font-size: 0.625rem; }
+
+.form-wrapper {
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sidebar);
+  padding: 34px 32px;
+  box-shadow: var(--shadow-md);
+}
+
+.form-title {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+}
+
+.form-subtitle { color: var(--text-secondary); font-size: 0.8125rem; }
+
+.input-wrap {
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.input-wrap:focus-within { border-color: var(--accent-border); }
+.input-wrap input { background: transparent; color: var(--text-primary); }
+.input-icon { color: var(--text-tertiary); }
+
+.submit-btn {
+  background: var(--accent);
+  color: var(--text-inverse);
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.04em;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.submit-btn:hover:not(:disabled) { background: var(--accent-hover); }
+
+.switch-btn { color: var(--accent); }
 </style>

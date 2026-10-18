@@ -5,25 +5,25 @@ const routes = [
     path: '/login',
     name: 'Login',
     component: () => import('../components/LoginView.vue'),
-    meta: { title: '登录 - AI Agent', guest: true }
+    meta: { title: '登录 · 客服工作台', guest: true }
   },
   {
     path: '/',
     name: 'Chat',
     component: () => import('../components/ChatView.vue'),
-    meta: { title: 'AI Agent', requiresAuth: true }
+    meta: { title: '客服工作台', requiresAuth: true }
   },
   {
     path: '/admin/faq',
     name: 'AdminFAQ',
     component: () => import('../components/AdminFAQView.vue'),
-    meta: { title: 'FAQ 管理 - AI Agent', requiresAuth: true, requiresAdmin: true }
+    meta: { title: 'FAQ 管理 · 客服工作台', requiresAuth: true, requiresAdmin: true }
   },
   {
     path: '/analytics',
     name: 'Analytics',
     component: () => import('../components/AnalyticsView.vue'),
-    meta: { title: '对话分析 - AI Agent', requiresAuth: true }
+    meta: { title: '对话分析 · 客服工作台', requiresAuth: true }
   },
   {
     path: '/:pathMatch(.*)*',
@@ -37,7 +37,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  document.title = to.meta.title || 'AI Agent'
+  document.title = to.meta.title || '客服工作台'
   const token = localStorage.getItem('token')
   if (to.meta.requiresAuth && !token) {
     return { name: 'Login' }

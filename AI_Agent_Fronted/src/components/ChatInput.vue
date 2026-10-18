@@ -44,6 +44,13 @@
         </svg>
       </button>
     </div>
+
+    <!-- 键盘提示：只在可输入时出现，弱化存在感 -->
+    <div v-if="!disabled" class="input-hint" aria-hidden="true">
+      <span class="hint-key">Enter</span><span>发送</span>
+      <span class="hint-dot">·</span>
+      <span class="hint-key">Shift</span><span>+</span><span class="hint-key">Enter</span><span>换行</span>
+    </div>
   </div>
 </template>
 
@@ -256,5 +263,122 @@ textarea:disabled {
   .input-container {
     padding: 5px 5px 5px 4px;
   }
+}
+
+/* ================================================================
+   v6 覆写：输入区像一张便签纸
+   ================================================================ */
+.chat-input-wrap {
+  width: 100%;
+  max-width: var(--chat-max-width);
+  margin: 0 auto;
+  padding: 0 20px 14px;
+}
+
+.input-container {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 8px 8px 10px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-lg);
+  background: var(--bg-input);
+  transition: border-color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.input-container:focus-within {
+  border-color: var(--accent-border);
+  background: var(--bg-input-focus);
+  box-shadow: inset 0 0 0 1px var(--accent-bg);
+}
+
+.input-container textarea {
+  flex: 1;
+  min-height: 24px;
+  max-height: 168px;
+  padding: 6px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.65;
+  resize: none;
+}
+
+.input-container textarea::placeholder { color: var(--text-tertiary); }
+
+/* 焦点态由外层容器统一表达，避免 textarea 内部再套一圈描边 */
+.input-container textarea:focus,
+.input-container textarea:focus-visible { outline: none; }
+
+.attach-btn {
+  width: 30px; height: 30px;
+  border-radius: var(--radius-xs);
+  color: var(--text-tertiary);
+  transition: color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
+}
+
+.attach-btn:hover { color: var(--text-secondary); background: var(--bg-hover); }
+.attach-btn svg { width: 17px; height: 17px; }
+
+.send-btn {
+  width: 32px; height: 32px;
+  border-radius: var(--radius-xs);
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.send-btn.active {
+  color: var(--text-inverse);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.send-btn.active:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.send-btn svg { width: 16px; height: 16px; }
+
+.image-preview-area { padding-bottom: 8px; }
+
+.image-preview-item {
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-step);
+}
+
+/* 键盘提示 */
+.input-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 7px;
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  user-select: none;
+}
+
+.hint-key {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid var(--border-secondary);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.hint-dot { opacity: 0.5; }
+
+@media (max-width: 768px) {
+  .input-hint { display: none; }
+  .chat-input-wrap { padding: 0 12px 10px; }
 }
 </style>

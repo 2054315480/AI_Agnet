@@ -1,5 +1,8 @@
 ﻿<template>
   <div class="chat-view">
+    <!-- 顶部加载进度线：只保留一条 1px 的细线，不做遮罩 -->
+    <div class="top-progress" :class="{ active: isLoading }" aria-hidden="true"></div>
+
     <!-- Mobile FAB toggle -->
     <button class="mobile-fab" aria-label="打开菜单" @click="sidebarStore.toggleSidebar()">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -235,5 +238,29 @@ onMounted(() => {
   .input-area {
     padding: 0 8px 10px;
   }
+}
+
+/* ===== 顶部加载细线 ===== */
+.top-progress {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.top-progress.active {
+  opacity: 1;
+  animation: progress-slide 1.4s var(--ease-in-out) infinite;
+}
+
+@keyframes progress-slide {
+  0%   { background-position: -40% 0; }
+  100% { background-position: 140% 0; }
 }
 </style>
