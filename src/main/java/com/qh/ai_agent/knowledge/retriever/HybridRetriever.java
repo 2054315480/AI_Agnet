@@ -159,6 +159,82 @@ public class HybridRetriever {
         return fused.stream().limit(topK).toList();
     }
     /**
+     * 检索过程解释：把每个阶段的候选与分数都返回，用于"检索解释"页面。
+     *
+     * 这是可验证性的核心：观众能看到每条候选在 BM25 / 向量 / RRF 三段的真实分数，
+     * 以及它最终是否入选。这些细节无法伪造。
+     */
+    public RetrievalExplain explain(String query) {
+        long t0 = System.currentTimeMillis();
+        List<RetrievalResult> bm25 = List.of();
+        List<RetrievalResult> vector = List.of();
+        long tBm25 = 0, tVector = 0;
+
+        long s1 = System.currentTimeMillis();
+        try {
+            bm25 = bm25Search(query);
+        } catch (Exception e) {
+            log.warn("[Explain] BM25 失败: {}", e.getMessage());
+        }
+        tBm25 = System.currentTimeMillis() - s1;
+
+        long s2 = System.currentTimeMillis();
+        try {
+            vector = vectorSearch(query, normalizeDocType(filterDocType));
+        } catch (Exception e) {
+            log.warn("[Explain] 向量失败: {}", e.getMessage());
+        }
+        tVector = System.currentTimeMillis() - s2;
+
+        long s3 = System.currentTimeMillis();
+        List<RetrievalResult> fused = (bm25.isEmpty() || vector.isEmpty())
+                ? (bm25.isEmpty() ? vector : bm25)
+                : reciprocalRankFusion(bm25, vector, Math.max(1, rrfK));
+        long tFuse = System.currentTimeMillis() - s3;
+
+        return new RetrievalExplain(
+                query,
+                bm25.stream().map(r -> toItem(r, "bm25", 0)).toList(),
+                vector.stream().map(r -> toItem(r, "vector", 0)).toList(),
+                fused.stream().map(r -> toItem(r, "fused", 0)).toList(),
+                Math.max(1, rrfK),
+                similarityThreshold,
+                tBm25, tVector, tFuse,
+                System.currentTimeMillis() - t0
+        );
+    }
+
+    private ExplainItem toItem(RetrievalResult r, String stage, int rank) {
+        String preview = r.getQuestion() != null && !r.getQuestion().isBlank()
+                ? r.getQuestion() : r.getAnswer();
+        return new ExplainItem(r.getKbId(), r.getSourceFile(), abbreviate(preview, 120),
+                r.getScore(), stage, rank);
+    }
+
+    private String abbreviate(String s, int max) {
+        if (s == null) {
+            return "";
+        }
+        String one = s.replaceAll("\s+", " ").trim();
+        return one.length() <= max ? one : one.substring(0, max) + "...";
+    }
+
+    /** 单条候选的解释信息 */
+    public record ExplainItem(String kbId, String source, String preview,
+                              double score, String stage, int rank) {
+    }
+
+    /** 一次检索的完整解释 */
+    public record RetrievalExplain(String query,
+                                   List<ExplainItem> bm25,
+                                   List<ExplainItem> vector,
+                                   List<ExplainItem> fused,
+                                   int rrfK,
+                                   double similarityThreshold,
+                                   long bm25Ms, long vectorMs, long fuseMs, long totalMs) {
+    }
+
+    /**
      * BM25 检索。
      */
     private List<RetrievalResult> bm25Search(String query) {

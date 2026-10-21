@@ -86,6 +86,69 @@
         </div>
       </section>
 
+      <!-- 实验 4：检索解释 -->
+      <section class="exp-card wide">
+        <div class="card-head">
+          <h2>检索解释</h2>
+          <span class="tag">RAG 透明化</span>
+        </div>
+        <p class="card-desc">
+          输入一个问题，看每一路检索召回了什么、各自多少分、RRF 融合后怎么排、最终谁入选。
+        </p>
+        <div class="controls">
+          <input v-model="explainQuery" class="q-input" placeholder="输入问题，如：耳机左耳没声音了还能保修吗" @keyup.enter="runExplain" />
+          <button class="run-btn" :disabled="running4" @click="runExplain">
+            {{ running4 ? '检索中…' : '解释这次检索' }}
+          </button>
+        </div>
+
+        <div v-if="r4" class="explain-result">
+          <div class="explain-meta">
+            <span>RRF k = <b class="mono">{{ r4.rrfK }}</b></span>
+            <span>向量阈值 = <b class="mono">{{ r4.similarityThreshold }}</b></span>
+            <span>BM25 <b class="mono">{{ r4.timings.bm25Ms }}ms</b></span>
+            <span>向量 <b class="mono">{{ r4.timings.vectorMs }}ms</b></span>
+            <span>融合 <b class="mono">{{ r4.timings.fuseMs }}ms</b></span>
+            <span>合计 <b class="mono">{{ r4.timings.totalMs }}ms</b></span>
+          </div>
+
+          <div class="explain-cols">
+            <div class="ex-col">
+              <div class="ex-title">BM25 候选（{{ r4.bm25.length }}）</div>
+              <div v-for="(it, i) in r4.bm25" :key="'b'+i" class="ex-item">
+                <span class="ex-rank">{{ i + 1 }}</span>
+                <span class="ex-text" :title="it.preview">{{ it.preview }}</span>
+                <span class="ex-score mono">{{ it.score.toFixed(2) }}</span>
+              </div>
+              <div v-if="!r4.bm25.length" class="ex-empty">无命中</div>
+            </div>
+
+            <div class="ex-col">
+              <div class="ex-title">向量候选（{{ r4.vector.length }}）</div>
+              <div v-for="(it, i) in r4.vector" :key="'v'+i" class="ex-item">
+                <span class="ex-rank">{{ i + 1 }}</span>
+                <span class="ex-text" :title="it.preview">{{ it.preview }}</span>
+                <span class="ex-score mono">{{ it.score.toFixed(3) }}</span>
+              </div>
+              <div v-if="!r4.vector.length" class="ex-empty">无命中</div>
+            </div>
+
+            <div class="ex-col">
+              <div class="ex-title">RRF 融合后（{{ r4.fused.length }}）</div>
+              <div v-for="(it, i) in r4.fused" :key="'f'+i" class="ex-item fused">
+                <span class="ex-rank">{{ i + 1 }}</span>
+                <span class="ex-text" :title="it.preview">{{ it.preview }}</span>
+                <span class="ex-score mono">{{ it.score.toFixed(4) }}</span>
+              </div>
+              <div v-if="!r4.fused.length" class="ex-empty">无命中</div>
+            </div>
+          </div>
+          <p class="ex-note">
+            说明：BM25 分与余弦相似度不是一个量纲，所以 RRF 只用排名不用分数；阈值只作用于向量路。
+          </p>
+        </div>
+      </section>
+
       <!-- 自证条 -->
       <section class="exp-card wide">
         <div class="card-head">
@@ -116,6 +179,9 @@ const faultSec = ref(60)
 const running1 = ref(false)
 const running2 = ref(false)
 const running3 = ref(false)
+const running4 = ref(false)
+const explainQuery = ref('耳机左耳没声音了还能保修吗')
+const r4 = ref(null)
 const r1 = ref(null)
 const r2 = ref(null)
 const r3 = ref(null)
@@ -187,6 +253,19 @@ async function runHitRate() {
   }
 }
 
+async function runExplain() {
+  if (!explainQuery.value.trim()) return
+  running4.value = true
+  r4.value = null
+  try {
+    r4.value = await post('/api/admin/retrieval/explain', { query: explainQuery.value.trim() })
+  } catch (e) {
+    r4.value = null
+  } finally {
+    running4.value = false
+  }
+}
+
 async function loadInfo() {
   try {
     const res = await fetch('/api/system/info')
@@ -251,7 +330,25 @@ h1 { font-family: var(--font-serif); font-size: 1.375rem; }
 .pg-k { font-size: 0.625rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-tertiary); }
 .pg-v { font-size: 0.9375rem; color: var(--text-primary); }
 
+.q-input { flex: 1; min-width: 240px; padding: 7px 10px; border: 1px solid var(--border-input); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-size: 0.8125rem; }
+
+.explain-result { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.explain-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.6875rem; color: var(--text-tertiary); margin-bottom: 12px; }
+.explain-meta b { color: var(--text-secondary); font-weight: 500; }
+.explain-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.ex-col { border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: 10px; }
+.ex-title { font-size: 0.625rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 8px; }
+.ex-item { display: flex; align-items: baseline; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--rule); font-size: 0.75rem; }
+.ex-item:last-child { border-bottom: 0; }
+.ex-item.fused .ex-text { color: var(--text-primary); }
+.ex-rank { width: 16px; color: var(--text-tertiary); font-family: var(--font-mono); font-size: 0.625rem; flex-shrink: 0; }
+.ex-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.ex-score { flex-shrink: 0; color: var(--accent); font-size: 0.6875rem; }
+.ex-empty { font-size: 0.75rem; color: var(--text-tertiary); padding: 4px 0; }
+.ex-note { margin-top: 10px; font-size: 0.6875rem; color: var(--text-tertiary); }
+
 @media (max-width: 900px) {
+  .explain-cols { grid-template-columns: 1fr; }
   .exp-grid { grid-template-columns: 1fr; }
   .proof-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
