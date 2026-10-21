@@ -177,6 +177,9 @@
       <!-- 实验 6：知识图谱可视化 -->
       <KgGraphPanel />
 
+      <!-- 实验 7：能力自证（原始响应对照） -->
+      <CapabilityProbe />
+
       <!-- 自证条 -->
       <section class="exp-card wide">
         <div class="card-head">
@@ -202,6 +205,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import KgGraphPanel from './KgGraphPanel.vue'
+import CapabilityProbe from './CapabilityProbe.vue'
 
 const concurrency = ref(20)
 const faultSec = ref(60)
