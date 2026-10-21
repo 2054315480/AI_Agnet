@@ -51,6 +51,12 @@ public class HybridRetriever {
     @Autowired(required = false)
     private PgVectorSearchDao pgVectorSearchDao;
 
+    @Autowired(required = false)
+    private com.qh.ai_agent.knowledge.RerankService rerankService;
+
+    @org.springframework.beans.factory.annotation.Value("${cs.rerank.enabled:true}")
+    private boolean rerankEnabled;
+
     /** 并行检索时的候选池大小。 */
     private static final int CANDIDATE_TOP_K = 10;
 
@@ -142,11 +148,17 @@ public class HybridRetriever {
         if (bm25Results.isEmpty()) {
             log.debug("[HybridRetriever] 仅向量路有结果，跳过 RRF: vector={}, k={}",
                     vectorResults.size(), effectiveRrfK);
+            if (rerankEnabled && rerankService != null && vectorResults.size() > 1) {
+                return rerankService.rerank(query, vectorResults, topK);
+            }
             return vectorResults.stream().limit(topK).toList();
         }
         if (vectorResults.isEmpty()) {
             log.debug("[HybridRetriever] 仅 BM25 路有结果，跳过 RRF: bm25={}, k={}",
                     bm25Results.size(), effectiveRrfK);
+            if (rerankEnabled && rerankService != null && bm25Results.size() > 1) {
+                return rerankService.rerank(query, bm25Results, topK);
+            }
             return bm25Results.stream().limit(topK).toList();
         }
 
@@ -156,6 +168,11 @@ public class HybridRetriever {
         log.debug("[HybridRetriever] RRF 融合完成: bm25Candidates={}, vectorCandidates={}, "
                         + "rrfK={}, fused={}, topK={}",
                 bm25Results.size(), vectorResults.size(), effectiveRrfK, fused.size(), topK);
+
+        // 精排：RRF 只用排名，缺少语义打分；cross-encoder 重排能显著提升 top-k 准确率
+        if (rerankEnabled && rerankService != null && fused.size() > 1) {
+            return rerankService.rerank(query, fused, topK);
+        }
         return fused.stream().limit(topK).toList();
     }
     /**

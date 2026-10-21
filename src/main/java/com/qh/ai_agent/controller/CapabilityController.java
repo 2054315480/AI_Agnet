@@ -117,8 +117,9 @@ public class CapabilityController {
                 Map.of("索引存在", indexExists("uq_cs_vector_kb_id"))));
 
         // ---------- 未完成 ----------
-        list.add(cap("Reranker 精排", "RAG", "planned",
-                "计划接入 DashScope gte-rerank，用评测集验证增益", Map.of()));
+        list.add(cap("Reranker 精排（gte-rerank-v2）", "RAG",
+                "implemented", "RRF 融合后调 DashScope gte-rerank 重新打分，用评测集对比增益",
+                Map.of("精排调用次数", metrics.getRerankCalls())));
         list.add(cap("轻量知识图谱", "RAG", "planned",
                 "计划用 PG 三张表 + 递归 CTE 做实体链接增强", Map.of()));
         list.add(cap("熔断器 + 令牌桶限流", "稳定性",

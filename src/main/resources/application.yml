@@ -108,6 +108,13 @@ cs:
   # 链路追踪：观测台实时面板的数据源
   trace:
     enabled: true
+  # 精排（DashScope gte-rerank-v2）；api-key 在 application-local.yml 里配置
+  rerank:
+    enabled: true
+    api-key: ""
+    model: gte-rerank-v2
+    candidate-top-k: 20
+    url: https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
   # 熔断器（手写零依赖）
   circuit:
     failure-rate-threshold: 50

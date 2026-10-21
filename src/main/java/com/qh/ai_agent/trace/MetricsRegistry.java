@@ -32,8 +32,8 @@ public class MetricsRegistry {
     private final AtomicLong degradedCount = new AtomicLong();
     /** 检索总次数 */
     private final AtomicLong retrievalCalls = new AtomicLong();
-    /** 重排调用次数 */
-    private final AtomicLong rerankCalls = new AtomicLong();
+    /** 重排调用次数（静态：RerankService 可能被非 Bean 调用） */
+    private static final AtomicLong RERANK_CALLS = new AtomicLong();
 
     public void incChatRequests() { chatRequests.incrementAndGet(); }
     public static void incLlmCalls() { LLM_CALLS.incrementAndGet(); }
@@ -43,7 +43,8 @@ public class MetricsRegistry {
     public void incLockServedFromCache() { lockServedFromCache.incrementAndGet(); }
     public void incDegraded() { degradedCount.incrementAndGet(); }
     public void incRetrievalCalls() { retrievalCalls.incrementAndGet(); }
-    public void incRerankCalls() { rerankCalls.incrementAndGet(); }
+    public static void incRerankCallsStatic() { RERANK_CALLS.incrementAndGet(); }
+    public void incRerankCalls() { RERANK_CALLS.incrementAndGet(); }
 
     public Instant getStartedAt() { return startedAt; }
     public long getChatRequests() { return chatRequests.get(); }
@@ -54,5 +55,5 @@ public class MetricsRegistry {
     public long getLockServedFromCache() { return lockServedFromCache.get(); }
     public long getDegradedCount() { return degradedCount.get(); }
     public long getRetrievalCalls() { return retrievalCalls.get(); }
-    public long getRerankCalls() { return rerankCalls.get(); }
+    public long getRerankCalls() { return RERANK_CALLS.get(); }
 }
