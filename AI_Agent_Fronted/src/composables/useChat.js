@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { useConversations } from './useConversations.js'
+import { useLiveTrace } from './useLiveTrace.js'
 import { chatCustomerServiceStream } from '../api/chat.js'
 
 export function useChat() {
@@ -39,7 +40,10 @@ export function useChat() {
     sendCustomerServiceMessage(text, convId)
   }
 
+  const liveTrace = useLiveTrace()
+
   function sendCustomerServiceMessage(text, convId) {
+    liveTrace.reset()
     abortController = chatCustomerServiceStream(text, currentSessionId, {
       onStep(rawData) {
         let event = null
@@ -87,6 +91,10 @@ export function useChat() {
           updateLastMessage(convId, { thinkingSteps: steps, loading: true })
         } else if (event.type === 'answer') {
           updateLastMessage(convId, { content: event.content, loading: true })
+        } else if (event.type === 'span') {
+          liveTrace.applySpan(event.content)
+        } else if (event.type === 'metrics') {
+          liveTrace.applyMetrics(event.content)
         } else if (event.type === 'sources') {
           // 引用来源：后端从检索结果里提取的原文出处
           try {
@@ -105,6 +113,7 @@ export function useChat() {
             // ignore parse error
           }
         } else if (event.type === 'done') {
+          liveTrace.finish()
           updateLastMessage(convId, { loading: false, time: currentTime() })
         }
       },
@@ -115,6 +124,7 @@ export function useChat() {
         }
         isLoading.value = false
         abortController = null
+        liveTrace.finish()
       },
       onError(err) {
         const lastMsg = getLastMsg(convId)
@@ -151,7 +161,8 @@ export function useChat() {
   return {
     isLoading,
     sendMessage,
-    stopGeneration
+    stopGeneration,
+    liveTrace
   }
 }
 

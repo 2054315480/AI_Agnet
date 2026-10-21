@@ -16,6 +16,10 @@ import com.qh.ai_agent.knowledge.parser.KbParser;
 import com.qh.ai_agent.knowledge.parser.KbParserFactory;
 import com.qh.ai_agent.mapper.DialogAnalyticsMapper;
 import com.qh.ai_agent.service.AnalyticsService;
+import com.qh.ai_agent.trace.MetricsRegistry;
+import com.qh.ai_agent.trace.TraceCollector;
+import com.qh.ai_agent.trace.TraceContext;
+import com.qh.ai_agent.trace.TraceStore;
 import com.qh.ai_agent.service.ConversationService;
 import com.qh.ai_agent.service.PromptTemplateService;
 import lombok.RequiredArgsConstructor;
@@ -53,6 +57,8 @@ public class CustomerServiceController {
     private final ConversationService conversationService;
     private final AnalyticsService analyticsService;
     private final DialogAnalyticsMapper dialogAnalyticsMapper;
+    private final MetricsRegistry metricsRegistry;
+    private final TraceStore traceStore;
     private final KbParserFactory kbParserFactory;
     private final KnowledgeSearchService knowledgeSearchService;
 
@@ -80,7 +86,28 @@ public class CustomerServiceController {
         // 之前用 SseEmitter.onCompletion 存在竞态条件：async 任务可能在回调注册前就完成
         // 两段式落库：请求进来先写用户消息（中途断开也不丢），本轮结束后再补写回复与分析
         persistUserTurn(sid, message, currentUser != null ? currentUser.getId() : null);
-        agent.setOnCompleteHook(() -> persistAssistantTurn(sid, agent));
+        // 链路采集：开启后每个 span 会实时通过 SSE 推给前端（观测台实时面板）
+        metricsRegistry.incChatRequests();
+        TraceContext trace = TraceCollector.start(
+                java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 24),
+                sid, message,
+                (span, phase) -> agent.sendLiveSpanEvent(span, phase));
+        // SSE 在异步线程执行，把 trace 交给 agent 在 step 里重新绑定
+        agent.setTraceContext(trace, (span, phase) -> agent.sendLiveSpanEvent(span, phase));
+
+        agent.setOnCompleteHook(() -> {
+            TraceContext.Span persistSpan = TraceCollector.begin("persist");
+            try {
+                persistAssistantTurn(sid, agent);
+                TraceCollector.end(persistSpan, java.util.Map.of("sources", agent.getCurrentSources().size()));
+            } catch (Exception e) {
+                TraceCollector.fail(persistSpan, e.getClass().getSimpleName());
+            }
+            if (trace != null) {
+                traceStore.save(trace);
+            }
+            TraceCollector.finish();
+        });
 
         SseEmitter emitter = agent.runStream(message);
 

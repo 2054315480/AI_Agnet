@@ -105,6 +105,9 @@ cs:
     store: memory
     ttl-minutes: 30
     max-sessions: 5000
+  # 链路追踪：观测台实时面板的数据源
+  trace:
+    enabled: true
 
 # AI Agent 配置
 ai:

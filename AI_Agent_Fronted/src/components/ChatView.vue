@@ -1,5 +1,9 @@
 ﻿<template>
   <div class="chat-view" :class="{ 'drawer-open': drawerOpen }">
+    <div class="chat-main">
+    <!-- 自证条：真实运行数据，每 10 秒刷新 -->
+    <ProofBar />
+
     <!-- 顶部加载进度线：只保留一条 1px 的细线，不做遮罩 -->
     <div class="top-progress" :class="{ active: isLoading }" aria-hidden="true"></div>
 
@@ -77,6 +81,18 @@
       />
     </div>
 
+    </div>
+
+    <!-- 右侧实时链路面板：发消息时实时显示 span -->
+    <LiveTracePanel
+      :open="livePanelOpen"
+      :spans="liveTrace.spans.value"
+      :metrics="liveTrace.metrics.value"
+      :running="liveTrace.running.value"
+      :total-ms="liveTrace.totalMs.value"
+      @toggle="livePanelOpen = !livePanelOpen"
+    />
+
     <!-- 右侧会话信息抽屉 -->
     <ChatInfoDrawer
       :open="drawerOpen"
@@ -95,9 +111,11 @@ import WelcomeScreen from './WelcomeScreen.vue'
 import ChatMessage from './ChatMessage.vue'
 import ChatInput from './ChatInput.vue'
 import ChatInfoDrawer from './ChatInfoDrawer.vue'
+import LiveTracePanel from './LiveTracePanel.vue'
+import ProofBar from './ProofBar.vue'
 
 const { activeConversation, activeAgent } = useConversations()
-const { isLoading, sendMessage, stopGeneration } = useChat()
+const { isLoading, sendMessage, stopGeneration, liveTrace } = useChat()
 
 // Injected from App.vue for mobile FAB
 const sidebarStore = inject('sidebarStore', { toggleSidebar: () => {} })
@@ -106,6 +124,8 @@ const chatInputRef = ref(null)
 const messagesAreaRef = ref(null)
 // 支持 ?panel=info 直接打开会话信息抽屉（便于分享/深链）
 const drawerOpen = ref(new URLSearchParams(window.location.search).get('panel') === 'info')
+// 实时链路面板：默认展开（演示模式），可通过 ?live=0 关闭
+const livePanelOpen = ref(new URLSearchParams(window.location.search).get('live') !== '0')
 
 const conversationTitle = computed(() => activeConversation.value?.title || '新对话')
 const messageCount = computed(() => activeConversation.value?.messages?.length || 0)
@@ -197,10 +217,18 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.chat-view {
+.chat-main {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-view {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
   height: 100dvh;
   background: var(--bg-chat);
   overflow: hidden;

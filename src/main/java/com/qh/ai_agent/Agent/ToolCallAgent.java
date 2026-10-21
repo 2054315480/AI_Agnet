@@ -135,8 +135,19 @@ public  class ToolCallAgent extends ReActAgent{
         try {
             // 直接调用 ChatModel，获取包含工具调用的原始响应（不会被自动执行）
             // 【改造】SSE 模式下优先 token 级流式，最后聚合成完整响应
-            ModelTurn turn = callModelWithStreaming(prompt);
-
+            com.qh.ai_agent.trace.TraceContext.Span llmSpan =
+                    com.qh.ai_agent.trace.TraceCollector.begin("llm");
+            ModelTurn turn;
+            try {
+                turn = callModelWithStreaming(prompt);
+                com.qh.ai_agent.trace.MetricsRegistry.incLlmCalls();
+                com.qh.ai_agent.trace.TraceCollector.end(llmSpan, java.util.Map.of(
+                        "toolCalls", turn.toolCalls() == null ? 0 : turn.toolCalls().size(),
+                        "chars", turn.text() == null ? 0 : turn.text().length()));
+            } catch (Exception e) {
+                com.qh.ai_agent.trace.TraceCollector.fail(llmSpan, e.getClass().getSimpleName());
+                throw e;
+            }
             this.toolCallchatResponse = turn.response();
 
             // 获取需要调用的工具列表

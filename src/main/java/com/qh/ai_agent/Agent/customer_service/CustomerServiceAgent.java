@@ -13,6 +13,8 @@ import com.qh.ai_agent.intent.model.SlotDefinition;
 import com.qh.ai_agent.intent.model.SlotExtractionResult;
 import com.qh.ai_agent.service.ChatGuardService;
 import com.qh.ai_agent.service.PromptTemplateService;
+import com.qh.ai_agent.trace.TraceCollector;
+import com.qh.ai_agent.trace.TraceContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -69,6 +71,16 @@ public class CustomerServiceAgent extends ToolCallAgent {
     /** 从工具返回的检索 JSON 中提取 source 字段 */
     private static final java.util.regex.Pattern SOURCE_PATTERN =
             java.util.regex.Pattern.compile("\"source\"\\s*:\\s*\"([^\"]+)\"");
+
+    /** 外部注入的链路上下文（SSE 在异步线程执行，ThreadLocal 不会自动传递） */
+    private TraceContext traceContext;
+    private TraceCollector.SpanListener spanListener;
+
+    /** Controller 在 runStream 之前调用，把 trace 交给 Agent 在异步线程里重新绑定 */
+    public void setTraceContext(TraceContext ctx, TraceCollector.SpanListener listener) {
+        this.traceContext = ctx;
+        this.spanListener = listener;
+    }
 
     /** 供 Controller 落库使用 */
     public java.util.List<String> getCurrentSources() {
@@ -128,6 +140,10 @@ public class CustomerServiceAgent extends ToolCallAgent {
     @Override
     public String step() {
         try {
+            // 异步线程重新绑定链路上下文（ThreadLocal 不跨线程）
+            if (traceContext != null) {
+                TraceCollector.attach(traceContext, spanListener);
+            }
             String lastUserInput = getLastUserMessage();
             if (lastUserInput == null || lastUserInput.isBlank()) {
                 return "无用户输入";
@@ -254,6 +270,7 @@ public class CustomerServiceAgent extends ToolCallAgent {
             dialogStateManager.updateState(sessionId, dialogState);
 
             // === 意图识别 + 槽位提取（传入对话状态） ===
+            TraceContext.Span intentSpan = TraceCollector.begin("intent");
             IntentResult intentResult = intentClassifier.classify(
                     resolvedInput,
                     dialogState != null ? dialogState.getFilledSlots() : null,
@@ -261,6 +278,10 @@ public class CustomerServiceAgent extends ToolCallAgent {
             );
 
             // 更新对话状态（由 DialogState 根据置信度与槽位完整度决定进入 CLARIFYING 或 SLOT_FILLING 或 RETRIEVING）
+            TraceCollector.end(intentSpan, java.util.Map.of(
+                    "intent", String.valueOf(intentResult.getIntent()),
+                    "confidence", intentResult.getConfidence()));
+            TraceCollector.metric("intent", String.valueOf(intentResult.getIntent()));
             dialogState = dialogStateManager.updateFromIntentResult(sessionId, intentResult);
             // 状态机基于"意图 + 槽位完整度 + 置信度"给出的阶段：先记下来，后面进入 RETRIEVING 也不会丢掉这个决策
             DialogPhase phaseFromIntent = dialogState.getDialogPhase();
@@ -293,7 +314,10 @@ public class CustomerServiceAgent extends ToolCallAgent {
                 setState(AgentState.FINISHED);
                 return "思考完成 - 无需行动";
             }
+            TraceContext.Span retrieveSpan = TraceCollector.begin("retrieve");
             String actResult = actAndExtractSuggestions();
+            TraceCollector.end(retrieveSpan, java.util.Map.of("hasResults", hasKnowledgeResults(actResult)));
+            TraceCollector.metric("retrievalDone", true);
             // 从工具结果里提取出处：推 SSE 给前端展示，同时缓存给 Controller 落库
             captureSources(actResult);
             // 命中判定只看是否真的检索到档案，不用分数阈值，避免 RRF 低分量级被误判为空
@@ -770,6 +794,47 @@ public class CustomerServiceAgent extends ToolCallAgent {
         sb.append("]");
         sendSseEvent("sources", sb.toString());
         log.info("[Sources] 会话 {} 本轮命中出处 {} 条: {}", sessionId, found.size(), found);
+    }
+
+    /**
+     * 把链路 span 实时推给前端（观测台右侧实时面板）。
+     * phase: start / end / fail
+     */
+    public void sendLiveSpanEvent(com.qh.ai_agent.trace.TraceContext.Span span, String phase) {
+        if (span == null) {
+            return;
+        }
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append("{\"name\":\"").append(span.getName()).append("\"");
+            sb.append(",\"phase\":\"").append(phase).append("\"");
+            sb.append(",\"offsetMs\":").append(span.getStartOffsetMs());
+            sb.append(",\"durationMs\":").append(span.getDurationMs());
+            sb.append(",\"status\":\"").append(span.getStatus()).append("\"");
+            java.util.Map<String, Object> attrs = span.getAttributes();
+            if (attrs != null && !attrs.isEmpty()) {
+                sb.append(",\"attrs\":{");
+                boolean first = true;
+                for (java.util.Map.Entry<String, Object> e : attrs.entrySet()) {
+                    if (!first) {
+                        sb.append(",");
+                    }
+                    first = false;
+                    sb.append("\"").append(e.getKey()).append("\":");
+                    Object v = e.getValue();
+                    if (v instanceof Number || v instanceof Boolean) {
+                        sb.append(v);
+                    } else {
+                        sb.append("\"").append(String.valueOf(v).replace("\"", "'")).append("\"");
+                    }
+                }
+                sb.append("}");
+            }
+            sb.append("}");
+            sendSseEvent("span", sb.toString());
+        } catch (Exception e) {
+            log.debug("[Trace] span 推送失败（忽略）: {}", e.getMessage());
+        }
     }
 
     /** 输出侧护栏：违禁词过滤 + 敏感信息脱敏 */
