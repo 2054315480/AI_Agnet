@@ -14,8 +14,24 @@
       <input v-model="query" class="q-input" placeholder="输入问题，如：耳机坏了想退货退款多久到账" @keyup.enter="loadGraph" />
       <button class="run-btn" :disabled="loading" @click="loadGraph">{{ loading ? '查询中…' : '生成图谱' }}</button>
       <button class="ghost-btn" @click="loadGraph('')">全局概览</button>
+      <div class="view-switch">
+        <button :class="{ on: view === 'graph' }" @click="view = 'graph'">关系图</button>
+        <button :class="{ on: view === 'table' }" @click="view = 'table'">关系表</button>
+      </div>
       <label class="chk"><input v-model="showRaw" type="checkbox" /> 显示原始响应</label>
     </div>
+
+    <!-- 关系类型图例（带数量） -->
+    <div v-if="graph && relationStats.length" class="rel-legend">
+      <span class="rl-label">关系类型：</span>
+      <span v-for="r in relationStats" :key="r.name" class="rl-item">
+        <i class="rl-dot" :style="{ background: relColor(r.name) }"></i>
+        <b class="mono">{{ r.name }}</b>
+        <span class="rl-count">{{ r.count }}</span>
+      </span>
+    </div>
+
+    <div v-if="errMsg" class="err-msg">{{ errMsg }}</div>
 
     <div v-if="graph" class="kg-meta">
       <span>节点 <b class="mono">{{ graph.nodeCount }}</b></span>
@@ -24,7 +40,25 @@
       <span class="muted">{{ graph.matched.map(m => m.name + '(' + m.type + ')').join('、') || '未命中实体（展示全局高频实体）' }}</span>
     </div>
 
-    <div v-if="graph" ref="chartRef" class="kg-chart"></div>
+    <div v-if="graph && view === 'graph'" ref="chartRef" class="kg-chart"></div>
+
+    <!-- 关系表视图：图看不清时直接看「源 → 关系 → 目标」 -->
+    <div v-if="graph && view === 'table'" class="rel-table-wrap">
+      <table class="rel-table">
+        <thead>
+          <tr><th>源实体</th><th>关系</th><th>目标实体</th><th>类型</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="(r, i) in relationRows" :key="i">
+            <td class="ent">{{ r.sourceName }}</td>
+            <td><span class="rel-chip" :style="{ color: relColor(r.relation), borderColor: relColor(r.relation) }">{{ r.relation }}</span></td>
+            <td class="ent">{{ r.targetName }}</td>
+            <td class="muted mono">{{ r.sourceType }} → {{ r.targetType }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="!relationRows.length" class="ex-empty">当前视图没有关系数据</div>
+    </div>
 
     <div v-if="showRaw && graph" class="raw-box">
       <div class="raw-title">后端原始响应（POST /api/admin/kg/graph）</div>
@@ -34,7 +68,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
@@ -46,14 +80,59 @@ const query = ref('耳机坏了想退货退款多久到账')
 const graph = ref(null)
 const loading = ref(false)
 const showRaw = ref(false)
+const view = ref('graph')
+const errMsg = ref('')
 const rawText = ref('')
 const chartRef = ref(null)
 let chart = null
 
+// 节点配色：整体提高亮度，避免深色背景下发灰
 const TYPE_COLOR = {
-  PRODUCT: '#5E948A', PART: '#7FB3A6', POLICY: '#C2A36B', ISSUE: '#B4544A',
-  ACTION: '#5C8A5F', CHANNEL: '#6E736C', DURATION: '#A97C3B', UNKNOWN: '#8A908A'
+  PRODUCT: '#7FD1BF', PART: '#A8DCCF', POLICY: '#F2C46B', ISSUE: '#FF7B6B',
+  ACTION: '#7FCF85', CHANNEL: '#C2C7BE', DURATION: '#FFC46B', UNKNOWN: '#B9BDB6'
 }
+
+// 关系配色：不同关系用不同颜色，一眼能区分"是什么关系"
+const REL_COLOR = {
+  resolved_by: '#7FD1BF',   // 问题 -> 动作：青
+  has_policy: '#F2C46B',    // 产品 -> 政策：黄铜
+  requires: '#FFC46B',      // 动作 -> 条件：琥珀
+  applies_to: '#F2C46B',
+  co_occurs: '#9AA39A'      // 共现：灰白（弱化但不能看不见）
+}
+
+function relColor(name) {
+  return REL_COLOR[name] || '#CFD4CB'
+}
+
+const relationStats = computed(() => {
+  const m = new Map()
+  for (const l of (graph.value?.links || [])) {
+    m.set(l.relation, (m.get(l.relation) || 0) + 1)
+  }
+  return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
+})
+
+const nodeMap = computed(() => {
+  const m = new Map()
+  for (const n of (graph.value?.nodes || [])) m.set(String(n.id), n)
+  return m
+})
+
+const relationRows = computed(() => {
+  const nm = nodeMap.value
+  return (graph.value?.links || []).map(l => {
+    const s = nm.get(String(l.source)) || {}
+    const t = nm.get(String(l.target)) || {}
+    return {
+      sourceName: s.name || l.source,
+      targetName: t.name || l.target,
+      sourceType: s.type || '-',
+      targetType: t.type || '-',
+      relation: l.relation
+    }
+  }).sort((a, b) => a.relation.localeCompare(b.relation))
+})
 
 function headers() {
   const t = localStorage.getItem('token')
@@ -63,6 +142,7 @@ function headers() {
 async function loadGraph(q) {
   const text = q === undefined ? query.value : q
   loading.value = true
+  errMsg.value = ''
   try {
     const res = await fetch('/api/admin/kg/graph', {
       method: 'POST', headers: headers(), body: JSON.stringify({ query: text, limit: 25 })
@@ -75,6 +155,7 @@ async function loadGraph(q) {
     render()
   } catch (e) {
     graph.value = null
+    errMsg.value = '加载失败: ' + (e && e.message ? e.message : e)
   } finally {
     loading.value = false
   }
@@ -89,6 +170,8 @@ function render() {
   const matchedIds = new Set((graph.value.matched || []).map(m => String(m.id)))
   const rawNodes = graph.value.nodes || []
   const rawLinks = graph.value.links || []
+  // 关系名标注：边数少时才显示，避免线条糊成一片
+  const linksLabelOn = rawLinks.length <= 60
 
   // 边裁剪：197 条边铺满屏幕会糊成一片，只保留与命中实体相关的边 + 权重最高的若干条
   const keep = new Set()
@@ -103,13 +186,26 @@ function render() {
   }
   const links = rawLinks
     .filter((l, i) => keep.has(i))
-    .map(l => ({
-      source: String(l.source),
-      target: String(l.target),
-      relation: l.relation,
-      lineStyle: { width: 1.4, opacity: 0.55, curveness: 0.08 },
-      emphasis: { lineStyle: { width: 3, opacity: 1 } }
-    }))
+    .map(l => {
+      const c = relColor(l.relation)
+      const strong = l.relation !== 'co_occurs'
+      return {
+        source: String(l.source),
+        target: String(l.target),
+        relation: l.relation,
+        lineStyle: { color: c, width: strong ? 2.4 : 1.6, opacity: strong ? 0.95 : 0.6, curveness: 0.08 },
+        emphasis: { lineStyle: { width: 4, opacity: 1 } },
+        // 关系名直接标在线上（边不多时才显示，避免糊）
+        label: {
+          show: linksLabelOn && strong,
+          formatter: l.relation,
+          fontSize: 10,
+          color: c,
+          textBorderColor: '#0B0D0C',
+          textBorderWidth: 3
+        }
+      }
+    })
 
   const nodes = rawNodes.map(n => {
     const matched = matchedIds.has(String(n.id))
@@ -130,8 +226,8 @@ function render() {
       // 标签：深色描边保证在任意背景上都能看清；小节点默认隐藏，hover 才显示
       label: {
         show: matched || freq >= 40,
-        color: '#F2F0EA',
-        fontSize: matched ? 13 : 11,
+        color: '#FFFFFF',
+        fontSize: matched ? 14 : 12,
         fontWeight: matched ? 600 : 400,
         textBorderColor: '#0B0D0C',
         textBorderWidth: 3,
@@ -192,13 +288,13 @@ function render() {
       categories,
       data: nodes,
       links,
-      lineStyle: { color: 'rgba(233,230,223,0.5)', width: 1.4, curveness: 0.08 },
+      lineStyle: { width: 2, curveness: 0.08 },
       emphasis: {
         focus: 'adjacency',
         lineStyle: { width: 3, color: '#7FB3A6', opacity: 1 },
         label: { show: true }
       },
-      blur: { itemStyle: { opacity: 0.25 }, lineStyle: { opacity: 0.08 } }
+      blur: { itemStyle: { opacity: 0.35 }, lineStyle: { opacity: 0.15 } }
     }]
   }, true)
 }
@@ -223,10 +319,37 @@ watch(showRaw, () => {
   if (resizeTimer) clearTimeout(resizeTimer)
   resizeTimer = setTimeout(() => { if (chart) chart.resize() }, 220)
 })
+
+// 视图切换：离开关系图时销毁实例，切回来时重建（容器是 v-if，DOM 会被移除）
+watch(view, async (v) => {
+  if (v === 'graph') {
+    await nextTick()
+    chart = null
+    render()
+  } else if (chart) {
+    chart.dispose()
+    chart = null
+  }
+})
 </script>
 
 <style scoped>
 .tip { color: var(--text-tertiary); font-size: 0.6875rem; }
+.err-msg { margin: 10px 0; padding: 8px 12px; border: 1px solid var(--danger-border); background: var(--danger-bg); color: var(--danger); border-radius: var(--radius-sm); font-size: 0.75rem; }
+.view-switch { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: var(--radius-sm); overflow: hidden; }
+.view-switch button { padding: 6px 12px; font-size: 0.75rem; color: var(--text-tertiary); }
+.view-switch button.on { background: var(--bg-active); color: var(--text-primary); }
+.rel-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 8px 0 6px; font-size: 0.6875rem; color: var(--text-secondary); }
+.rl-label { color: var(--text-tertiary); }
+.rl-item { display: inline-flex; align-items: center; gap: 5px; }
+.rl-dot { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.rl-count { color: var(--text-tertiary); font-family: var(--font-mono); font-size: 0.625rem; }
+.rel-table-wrap { border: 1px solid var(--rule); border-radius: var(--radius-sm); overflow: auto; max-height: 520px; }
+.rel-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+.rel-table th { position: sticky; top: 0; background: var(--bg-sidebar); text-align: left; padding: 8px 10px; color: var(--text-tertiary); font-weight: 500; border-bottom: 1px solid var(--rule); }
+.rel-table td { padding: 6px 10px; border-bottom: 1px solid var(--rule); color: var(--text-secondary); }
+.rel-table td.ent { color: var(--text-primary); }
+.rel-chip { padding: 1px 8px; border: 1px solid; border-radius: var(--radius-full); font-family: var(--font-mono); font-size: 0.625rem; }
 .q-input { flex: 1; min-width: 240px; padding: 7px 10px; border: 1px solid var(--border-input); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-size: 0.8125rem; }
 .chk { display: inline-flex; align-items: center; gap: 5px; font-size: 0.75rem; color: var(--text-tertiary); }
 .kg-meta { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 6px; font-size: 0.75rem; color: var(--text-tertiary); align-items: baseline; }
