@@ -149,9 +149,11 @@ public class CapabilityController {
 
     private Long count(String table) {
         try {
-            return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
+            Long n = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
+            // 表不存在或查询失败时返回 0：Map.of 不接受 null，否则整个能力矩阵接口 500
+            return n == null ? 0L : n;
         } catch (Exception e) {
-            return null;
+            return 0L;
         }
     }
 

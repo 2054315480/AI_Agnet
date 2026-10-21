@@ -115,8 +115,11 @@ public class SystemInfoController {
                     .redirectErrorStream(true).start();
             try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
                 String line = r.readLine();
-                p.waitFor();
-                cachedCommit = line == null ? "unknown" : line.trim();
+                int exit = p.waitFor();
+                // 部署目录通常没有 .git，git 会把 "fatal: ..." 打到合并后的 stdout，
+                // 这里必须按退出码判断，否则会把错误信息当成 commit 返回给前端
+                cachedCommit = (exit != 0 || line == null || line.startsWith("fatal"))
+                        ? "unknown" : line.trim();
             }
         } catch (Exception e) {
             cachedCommit = "unknown";

@@ -109,3 +109,56 @@ curl -s localhost:8123/api/analytics/overview -H "Authorization: Bearer <token>"
 2. 单机单实例，会话状态虽已放 Redis，但 BM25 索引是每实例启动自建。
 3. 2G 内存，JVM 堆限制 640M，`cs.reindex.embed-batch-size` 必须 <= 10（DashScope 单批上限）。
 4. 数据库与配置未做自动备份，建议加 `pg_dump` 定时任务。
+
+## 六、增量更新（日常最常用）
+
+改完代码后**不要整台重装**，按改动范围选择下面之一即可。
+
+### 6.1 一键脚本（推荐）
+
+```powershell
+pip install paramiko            # 只需一次
+$env:DEPLOY_HOST="114.132.153.143"
+$env:DEPLOY_USER="root"
+$env:DEPLOY_PASSWORD="******"
+
+python scripts/deploy_update.py               # 后端 + 前端都更新（会重新构建）
+python scripts/deploy_update.py --backend     # 只改了 Java / application.yml
+python scripts/deploy_update.py --frontend    # 只改了 .vue / .css
+python scripts/deploy_update.py --skip-build  # 用现成 jar/dist 直接传
+```
+
+脚本做的事：构建 -> 分片上传（40MB/片，带 md5 校验）-> 备份旧 `app.jar` / `web` -> 切换 -> 重启 ->
+轮询日志等 `Started AiAgentApplication` -> 打健康检查；**失败会自动回滚到上一版**。
+
+### 6.2 改动类型对照表
+
+| 改了什么 | 需要做什么 | 要不要重启 |
+| --- | --- | --- |
+| Java 代码 / pom | 重新打包 jar，上传，重启 | 是 |
+| `application.yml` | 只改服务器上的 `/opt/ai-agent/config/application-server.yml`，重启 | 是 |
+| 前端 `.vue/.css/.js` | 重新 `npm run build`，上传 dist | 否（nginx 直接读静态文件） |
+| `data/` 知识库源文件 | 上传 `data/`，再调 `POST /api/admin/faq/reindex` | 否 |
+| 新增配置项 | 同步到服务器 `application-server.yml` | 是 |
+
+### 6.3 手动命令（等价于脚本）
+
+```bash
+# 后端
+scp target/AI_Agent-0.0.1-SNAPSHOT.jar root@host:/opt/ai-agent/app.jar.new
+ssh root@host "cd /opt/ai-agent && cp -f app.jar app.jar.bak && mv app.jar.new app.jar && systemctl restart ai-agent"
+
+# 前端
+tar -czf dist.tar.gz -C AI_Agent_Fronted/dist .
+scp dist.tar.gz root@host:/opt/ai-agent/
+ssh root@host "cd /opt/ai-agent && rm -rf web_new && mkdir web_new && tar -xzf dist.tar.gz -C web_new && rm -f dist.tar.gz && rm -rf web.bak && mv web web.bak && mv web_new web"
+
+# 回滚
+ssh root@host "cd /opt/ai-agent && mv -f app.jar.bak app.jar && systemctl restart ai-agent"
+```
+
+### 6.4 注意
+
+- 每次替换前都会留 `app.jar.bak` 和 `web.bak`，确认没问题后可手动删除（`rm -f app.jar.prev app.jar.bak; rm -rf web.bak`）。
+- 改了数据库结构（新增表）时：本项目没有 Flyway 脚本目录，观测/图谱表由 `SchemaInitializer` 在启动时 `CREATE TABLE IF NOT EXISTS` 兜底；其它表变更需要手动执行 SQL。
+- 上传 120MB 的 jar 约 1 分钟（服务器带宽约 2MB/s），分片是为了避免单次超时。

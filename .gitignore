@@ -27,3 +27,6 @@ AI_Agent_Fronted/temp_*.txt
 .claude/settings.local.json
 .vscode/
 .idea/
+# 临时文件
+_a.json
+_b.json
