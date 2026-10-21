@@ -174,6 +174,9 @@
         </div>
       </section>
 
+      <!-- 实验 6：知识图谱可视化 -->
+      <KgGraphPanel />
+
       <!-- 自证条 -->
       <section class="exp-card wide">
         <div class="card-head">
@@ -198,6 +201,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import KgGraphPanel from './KgGraphPanel.vue'
 
 const concurrency = ref(20)
 const faultSec = ref(60)
