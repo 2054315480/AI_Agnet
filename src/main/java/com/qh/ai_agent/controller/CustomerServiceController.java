@@ -63,6 +63,8 @@ public class CustomerServiceController {
     private final com.qh.ai_agent.cache.AnswerCacheService answerCache;
     private final com.qh.ai_agent.experiment.FaultInjector faultInjector;
     private final org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor persistExecutor;
+    private final com.qh.ai_agent.resilience.CircuitBreaker circuitBreaker;
+    private final com.qh.ai_agent.resilience.TokenBucketRateLimiter rateLimiter;
     private final KbParserFactory kbParserFactory;
     private final KnowledgeSearchService knowledgeSearchService;
 
@@ -75,6 +77,19 @@ public class CustomerServiceController {
                            @org.springframework.security.core.annotation.AuthenticationPrincipal
                            com.qh.ai_agent.entity.User currentUser) {
         log.info("[CS-Controller] 收到消息: {}, sessionId: {}", message, sessionId);
+
+        // 限流：按 token 前缀（粗粒度用户标识）做令牌桶限流
+        String limitKey = sessionId != null && sessionId.length() > 8 ? sessionId.substring(0, 8) : "anonymous";
+        if (!rateLimiter.tryAcquire(limitKey)) {
+            log.warn("[CS-Controller] 触发限流: key={}", limitKey);
+            return errorSse("请求过于频繁，请稍后再试。", 429);
+        }
+
+        // 熔断：LLM 连续失败超过阈值时快速失败，避免雪崩
+        if (!circuitBreaker.tryAcquire()) {
+            metricsRegistry.incDegraded();
+            return degradedAnswer(message, sessionId);
+        }
 
         // 降级演练：LLM 处于故障状态时，直接走 FAQ 直出（不调用大模型）
         if (faultInjector.isFaulty("llm")) {
@@ -140,6 +155,21 @@ public class CustomerServiceController {
             log.warn("发送 sessionId 失败", e);
         }
 
+        return emitter;
+    }
+
+    /** 返回一个带错误提示的 SSE（用于限流等前置拒绝） */
+    private SseEmitter errorSse(String message, int code) {
+        SseEmitter emitter = new SseEmitter(10_000L);
+        try {
+            String escaped = message.replace("\\", "\\\\").replace("\"", "\\\"");
+            emitter.send(SseEmitter.event().data("{\"type\":\"error\",\"code\":" + code
+                    + ",\"content\":\"" + escaped + "\"}"));
+            emitter.send(SseEmitter.event().data("{\"type\":\"done\"}"));
+            emitter.complete();
+        } catch (Exception e) {
+            emitter.completeWithError(e);
+        }
         return emitter;
     }
 

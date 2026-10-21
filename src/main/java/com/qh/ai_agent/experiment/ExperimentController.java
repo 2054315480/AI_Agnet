@@ -31,6 +31,8 @@ public class ExperimentController {
     private final MetricsRegistry metrics;
     private final AnswerCacheService answerCache;
     private final FaultInjector faultInjector;
+    private final com.qh.ai_agent.resilience.CircuitBreaker circuitBreaker;
+    private final com.qh.ai_agent.resilience.TokenBucketRateLimiter rateLimiter;
 
     private static final int MAX_CONCURRENCY = 50;
 
@@ -175,5 +177,30 @@ public class ExperimentController {
         r.put("l1Hits", l1);
         r.put("l2Hits", l2);
         return ResponseEntity.ok(r);
+    }
+
+    /** 熔断器 / 限流器状态 */
+    @GetMapping("/resilience")
+    public ResponseEntity<?> resilience() {
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("circuitState", circuitBreaker.getState());
+        r.put("failureRate", circuitBreaker.getFailureRate());
+        r.put("windowTotal", circuitBreaker.getWindowTotal());
+        r.put("rejectedByCircuit", circuitBreaker.getRejectedCount());
+        r.put("rateLimitRejected", rateLimiter.getRejectedCount());
+        r.put("rateLimitBuckets", rateLimiter.getBucketCount());
+        return ResponseEntity.ok(r);
+    }
+
+    /** 熔断器控制：reset / open */
+    @PostMapping("/resilience/control")
+    public ResponseEntity<?> resilienceControl(@RequestBody Map<String, Object> body) {
+        String action = String.valueOf(body.getOrDefault("action", "reset"));
+        if ("open".equals(action)) {
+            circuitBreaker.forceOpen();
+        } else {
+            circuitBreaker.reset();
+        }
+        return ResponseEntity.ok(Map.of("ok", true, "circuitState", circuitBreaker.getState()));
     }
 }

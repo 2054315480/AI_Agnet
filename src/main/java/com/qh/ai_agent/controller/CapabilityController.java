@@ -121,8 +121,9 @@ public class CapabilityController {
                 "计划接入 DashScope gte-rerank，用评测集验证增益", Map.of()));
         list.add(cap("轻量知识图谱", "RAG", "planned",
                 "计划用 PG 三张表 + 递归 CTE 做实体链接增强", Map.of()));
-        list.add(cap("熔断 / 重试 / 限流", "稳定性", "planned",
-                "计划用 Resilience4j 四件套", Map.of()));
+        list.add(cap("熔断器 + 令牌桶限流", "稳定性",
+                "implemented", "实验中心 -> 系统韧性：可查看熔断三态与限流拒绝数，支持手动打开熔断",
+                Map.of()));
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("generatedAt", java.time.Instant.now().toString());

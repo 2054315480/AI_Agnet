@@ -86,6 +86,31 @@
         </div>
       </section>
 
+      <!-- 实验 5：系统韧性 -->
+      <section class="exp-card">
+        <div class="card-head">
+          <h2>系统韧性</h2>
+          <span class="tag">熔断 + 限流</span>
+        </div>
+        <p class="card-desc">
+          熔断器三态（CLOSED/OPEN/HALF_OPEN）与令牌桶限流的实时状态。可手动打开熔断观察降级。
+        </p>
+        <div class="controls">
+          <button class="run-btn warn" @click="circuitControl('open')">手动熔断</button>
+          <button class="ghost-btn" @click="circuitControl('reset')">恢复</button>
+        </div>
+        <div v-if="resilience" class="result">
+          <table class="kv-table">
+            <tr><td>熔断状态</td><td class="mono strong">{{ resilience.circuitState }}</td></tr>
+            <tr><td>窗口失败率</td><td class="mono">{{ resilience.failureRate }}%</td></tr>
+            <tr><td>窗口请求数</td><td class="mono">{{ resilience.windowTotal }}</td></tr>
+            <tr><td>熔断拒绝数</td><td class="mono">{{ resilience.rejectedByCircuit }}</td></tr>
+            <tr><td>限流拒绝数</td><td class="mono">{{ resilience.rateLimitRejected }}</td></tr>
+            <tr><td>限流桶数量</td><td class="mono">{{ resilience.rateLimitBuckets }}</td></tr>
+          </table>
+        </div>
+      </section>
+
       <!-- 实验 4：检索解释 -->
       <section class="exp-card wide">
         <div class="card-head">
@@ -182,6 +207,7 @@ const running3 = ref(false)
 const running4 = ref(false)
 const explainQuery = ref('耳机左耳没声音了还能保修吗')
 const r4 = ref(null)
+const resilience = ref(null)
 const r1 = ref(null)
 const r2 = ref(null)
 const r3 = ref(null)
@@ -266,6 +292,20 @@ async function runExplain() {
   }
 }
 
+async function loadResilience() {
+  try {
+    const res = await fetch('/api/admin/experiments/resilience', { headers: headers() })
+    if (res.ok) resilience.value = await res.json()
+  } catch (e) { /* ignore */ }
+}
+
+async function circuitControl(action) {
+  try {
+    await post('/api/admin/experiments/resilience/control', { action })
+    await loadResilience()
+  } catch (e) { /* ignore */ }
+}
+
 async function loadInfo() {
   try {
     const res = await fetch('/api/system/info')
@@ -275,9 +315,10 @@ async function loadInfo() {
 
 onMounted(() => {
   loadInfo()
+  loadResilience()
   loadFaults()
   timer = setInterval(() => {
-    if (document.visibilityState === 'visible') { loadInfo(); loadFaults() }
+    if (document.visibilityState === 'visible') { loadInfo(); loadFaults(); loadResilience() }
   }, 5000)
 })
 onUnmounted(() => { if (timer) clearInterval(timer) })
