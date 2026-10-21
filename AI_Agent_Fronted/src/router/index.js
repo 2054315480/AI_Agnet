@@ -20,6 +20,12 @@ const routes = [
     meta: { title: 'FAQ 管理 · 客服工作台', requiresAuth: true, requiresAdmin: true }
   },
   {
+    path: '/console',
+    name: 'Console',
+    component: () => import('../components/SystemConsole.vue'),
+    meta: { title: '系统能力控制台 · 客服工作台', requiresAuth: true, requiresAdmin: true }
+  },
+  {
     path: '/experiments',
     name: 'Experiments',
     component: () => import('../components/ExperimentCenter.vue'),

@@ -67,7 +67,7 @@ public class SecurityConfig {
                     // 非流式问答（缓存+单飞演示用），与 /chat 同等公开
                     .requestMatchers("/customer-service/answer").permitAll()
                     // 自证条：只读系统信息，公开可访问（不含敏感数据）
-                    .requestMatchers("/system/info").permitAll()
+                    .requestMatchers("/system/info", "/system/capabilities").permitAll()
                         // 客服会话状态与批量测试只要求登录
                         .requestMatchers("/customer-service/session/**").authenticated()
                         .requestMatchers("/customer-service/batch-test").authenticated()
