@@ -54,6 +54,9 @@ public class HybridRetriever {
     @Autowired(required = false)
     private com.qh.ai_agent.knowledge.RerankService rerankService;
 
+    @Autowired(required = false)
+    private com.qh.ai_agent.kg.KgQueryService kgQueryService;
+
     @org.springframework.beans.factory.annotation.Value("${cs.rerank.enabled:true}")
     private boolean rerankEnabled;
 
@@ -169,12 +172,33 @@ public class HybridRetriever {
                         + "rrfK={}, fused={}, topK={}",
                 bm25Results.size(), vectorResults.size(), effectiveRrfK, fused.size(), topK);
 
+        // 图谱增强：实体链接 + 一跳扩散，给相关 kb 加权
+        applyKgBoost(query, fused);
+
         // 精排：RRF 只用排名，缺少语义打分；cross-encoder 重排能显著提升 top-k 准确率
         if (rerankEnabled && rerankService != null && fused.size() > 1) {
             return rerankService.rerank(query, fused, topK);
         }
         return fused.stream().limit(topK).toList();
     }
+    /** 图谱增强：实体链接 + 关系扩散后给候选加权（配置开关，默认关闭） */
+    private void applyKgBoost(String query, List<RetrievalResult> candidates) {
+        if (kgQueryService == null || !kgQueryService.isEnabled() || candidates == null || candidates.isEmpty()) {
+            return;
+        }
+        try {
+            var entities = kgQueryService.linkEntities(query);
+            if (entities.isEmpty()) {
+                return;
+            }
+            var kbScores = kgQueryService.relatedKbIds(entities);
+            kgQueryService.applyBoost(candidates, kbScores);
+            log.debug("[HybridRetriever] 图谱增强: entities={}, kbBoosted={}", entities.size(), kbScores.size());
+        } catch (Exception e) {
+            log.debug("[HybridRetriever] 图谱增强失败（忽略）: {}", e.getMessage());
+        }
+    }
+
     /**
      * 检索过程解释：把每个阶段的候选与分数都返回，用于"检索解释"页面。
      *

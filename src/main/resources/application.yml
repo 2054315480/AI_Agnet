@@ -108,6 +108,11 @@ cs:
   # 链路追踪：观测台实时面板的数据源
   trace:
     enabled: true
+  # 知识图谱（实体链接增强检索）
+  kg:
+    enabled: false
+    boost: 0.05
+    hop-decay: 0.5
   # 精排（DashScope gte-rerank-v2）；api-key 在 application-local.yml 里配置
   rerank:
     enabled: true

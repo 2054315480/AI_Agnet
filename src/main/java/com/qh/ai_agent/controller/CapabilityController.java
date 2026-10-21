@@ -120,8 +120,10 @@ public class CapabilityController {
         list.add(cap("Reranker 精排（gte-rerank-v2）", "RAG",
                 "implemented", "RRF 融合后调 DashScope gte-rerank 重新打分，用评测集对比增益",
                 Map.of("精排调用次数", metrics.getRerankCalls())));
-        list.add(cap("轻量知识图谱", "RAG", "planned",
-                "计划用 PG 三张表 + 递归 CTE 做实体链接增强", Map.of()));
+        list.add(cap("轻量知识图谱（实体链接增强）", "RAG",
+                "implemented",
+                "PG 三张表 + 8 线程并发抽取；消融显示在当前评测集上无增益（实体覆盖过宽），默认关闭",
+                kgMetrics()));
         list.add(cap("熔断器 + 令牌桶限流", "稳定性",
                 "implemented", "实验中心 -> 系统韧性：可查看熔断三态与限流拒绝数，支持手动打开熔断",
                 Map.of()));
@@ -189,5 +191,18 @@ public class CapabilityController {
             return Math.round(n.doubleValue() * 1000.0) / 1000.0;
         }
         return v;
+    }
+
+    /** 图谱指标 */
+    private Map<String, Object> kgMetrics() {
+        Map<String, Object> m = new LinkedHashMap<>();
+        try {
+            m.put("实体", jdbcTemplate.queryForObject("SELECT COUNT(*) FROM kg_entity", Long.class));
+            m.put("提及", jdbcTemplate.queryForObject("SELECT COUNT(*) FROM kg_mention", Long.class));
+            m.put("关系", jdbcTemplate.queryForObject("SELECT COUNT(*) FROM kg_relation", Long.class));
+        } catch (Exception e) {
+            m.put("状态", "未构建");
+        }
+        return m;
     }
 }
