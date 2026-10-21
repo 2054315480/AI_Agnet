@@ -36,6 +36,9 @@ public class SystemInfoController {
     @Value("${cs.trace.enabled:true}")
     private boolean traceEnabled;
 
+    @Value("${cs.cache.enabled:true}")
+    private boolean cacheEnabled;
+
     private volatile String cachedCommit;
     private volatile long commitCacheAt;
 
@@ -72,8 +75,8 @@ public class SystemInfoController {
         features.put("traceEnabled", traceEnabled);
         features.put("kgEnabled", false);
         features.put("rerankEnabled", false);
-        features.put("cacheEnabled", false);
-        features.put("lockEnabled", false);
+        features.put("cacheEnabled", cacheEnabled);
+        features.put("lockEnabled", true);
         data.put("features", features);
 
         return ResponseEntity.ok(data);

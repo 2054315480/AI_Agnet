@@ -18,6 +18,7 @@ import java.util.Map;
 public class AdminController {
 
     private final FaqManagementService faqManagementService;
+    private final com.qh.ai_agent.cache.AnswerCacheService answerCache;
 
     @PostMapping("/faq/upload")
     public ResponseEntity<Map<String, Object>> uploadFaq(@RequestParam("file") MultipartFile file) {
@@ -69,5 +70,13 @@ public class AdminController {
     @PostMapping("/faq/reindex")
     public ResponseEntity<Map<String, Object>> reindexFaq() {
         return ResponseEntity.ok(faqManagementService.reindexKnowledge());
+    }
+
+    /** 清空问答缓存（演示 / 实验前重置用） */
+    @org.springframework.web.bind.annotation.PostMapping("/cache/clear")
+    public java.util.Map<String, Object> clearCache() {
+        answerCache.invalidateAll();
+        answerCache.bumpKbVersion();
+        return java.util.Map.of("ok", true, "kbVersion", answerCache.getKbVersion());
     }
 }

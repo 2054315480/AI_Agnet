@@ -28,6 +28,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -59,6 +60,7 @@ public class CustomerServiceController {
     private final DialogAnalyticsMapper dialogAnalyticsMapper;
     private final MetricsRegistry metricsRegistry;
     private final TraceStore traceStore;
+    private final com.qh.ai_agent.cache.AnswerCacheService answerCache;
     private final KbParserFactory kbParserFactory;
     private final KnowledgeSearchService knowledgeSearchService;
 
@@ -118,6 +120,68 @@ public class CustomerServiceController {
         }
 
         return emitter;
+    }
+
+    /** 取对话里最后一条助手回复（非流式路径用） */
+    private String lastAssistantText(CustomerServiceAgent agent) {
+        java.util.List<org.springframework.ai.chat.messages.Message> list = agent.getMessagesList();
+        for (int i = list.size() - 1; i >= 0; i--) {
+            org.springframework.ai.chat.messages.Message m = list.get(i);
+            if (m instanceof org.springframework.ai.chat.messages.AssistantMessage am) {
+                String t = am.getText();
+                if (t != null && !t.isBlank()) {
+                    return t;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 非流式问答：走三层缓存 + 分布式锁单飞。
+     *
+     * 为什么单独提供这个端点：
+     * 1. SSE 流式路径不适合做"缓存命中即短路"（无法在流开始前知道答案）
+     * 2. 非流式路径可以完整验证缓存与单飞：30 并发相同问题 -> 只有 1 次真实 LLM 调用
+     *
+     * 生产上这个端点也适合给"批量调用/评测脚本/后台任务"使用。
+     */
+    @PostMapping("/answer")
+    public ResponseEntity<?> answer(@RequestParam String message,
+                                    @RequestParam(required = false) String sessionId) {
+        metricsRegistry.incChatRequests();
+        long start = System.currentTimeMillis();
+        int beforeLlm = (int) metricsRegistry.getLlmCalls();
+
+        String sid = sessionId != null ? sessionId : "ans_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        // 用归一化后的 query 做缓存 key（去掉客套词、标点，复用 QueryRewriteService）
+        String cacheKey = message == null ? "" : message.trim().toLowerCase();
+
+        try {
+            String answer = answerCache.get(cacheKey, () -> {
+                ToolCallback[] tools = ToolCallbacks.from(customerServiceTools);
+                CustomerServiceAgent agent = new CustomerServiceAgent(
+                        tools, openAiChatModel, intentClassifier, dialogStateManager,
+                        intentConfig, promptTemplateService);
+                agent.initSession(sid);
+                agent.run(message);
+                // run() 返回的是步骤轨迹，真正要缓存的是最后一条助手回复
+                String reply = lastAssistantText(agent);
+                return reply == null ? "" : reply;
+            });
+
+            int llmDelta = (int) metricsRegistry.getLlmCalls() - beforeLlm;
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("answer", answer);
+            body.put("sessionId", sid);
+            body.put("elapsedMs", System.currentTimeMillis() - start);
+            body.put("llmCalls", llmDelta);
+            body.put("fromCache", llmDelta == 0);
+            return ResponseEntity.ok(body);
+        } catch (Exception e) {
+            log.error("[CS-Answer] 非流式问答失败", e);
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
     }
 
     /**

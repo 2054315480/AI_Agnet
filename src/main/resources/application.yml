@@ -108,6 +108,14 @@ cs:
   # 链路追踪：观测台实时面板的数据源
   trace:
     enabled: true
+  # 三层缓存 + 分布式锁单飞（防缓存击穿）
+  cache:
+    enabled: true
+    l1-ttl-seconds: 60
+    l2-ttl-seconds: 600
+    lock-wait-ms: 200
+    lock-lease-ms: 20000
+    wait-for-cache-ms: 8000
 
 # AI Agent 配置
 ai:
