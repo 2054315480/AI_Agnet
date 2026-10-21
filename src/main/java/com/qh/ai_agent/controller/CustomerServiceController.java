@@ -62,6 +62,7 @@ public class CustomerServiceController {
     private final TraceStore traceStore;
     private final com.qh.ai_agent.cache.AnswerCacheService answerCache;
     private final com.qh.ai_agent.experiment.FaultInjector faultInjector;
+    private final org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor persistExecutor;
     private final KbParserFactory kbParserFactory;
     private final KnowledgeSearchService knowledgeSearchService;
 
@@ -106,18 +107,29 @@ public class CustomerServiceController {
         // SSE 在异步线程执行，把 trace 交给 agent 在 step 里重新绑定
         agent.setTraceContext(trace, (span, phase) -> agent.sendLiveSpanEvent(span, phase));
 
+        // 落库与链路保存异步执行：用户不关心写库，移出主链路降低首字节延迟
         agent.setOnCompleteHook(() -> {
-            TraceContext.Span persistSpan = TraceCollector.begin("persist");
-            try {
-                persistAssistantTurn(sid, agent);
-                TraceCollector.end(persistSpan, java.util.Map.of("sources", agent.getCurrentSources().size()));
-            } catch (Exception e) {
-                TraceCollector.fail(persistSpan, e.getClass().getSimpleName());
-            }
-            if (trace != null) {
-                traceStore.save(trace);
-            }
+            final java.util.List<String> sources = agent.getCurrentSources();
+            final java.util.List<TraceContext.Span> spans = trace == null ? null : trace.getSpans();
+            final String traceId = trace == null ? null : trace.getTraceId();
+            final String intent = trace == null ? null : trace.getIntent();
+            final long totalMs = trace == null ? 0 : trace.totalMs();
             TraceCollector.finish();
+
+            persistExecutor.execute(() -> {
+                try {
+                    persistAssistantTurn(sid, agent);
+                } catch (Exception e) {
+                    log.error("[CS-Controller] 异步落库失败: sessionId={}", sid, e);
+                }
+                if (trace != null) {
+                    try {
+                        traceStore.save(trace);
+                    } catch (Exception e) {
+                        log.warn("[CS-Controller] 链路保存失败: {}", e.getMessage());
+                    }
+                }
+            });
         });
 
         SseEmitter emitter = agent.runStream(message);

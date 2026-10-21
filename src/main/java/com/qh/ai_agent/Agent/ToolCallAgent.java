@@ -98,6 +98,18 @@ public  class ToolCallAgent extends ReActAgent{
 
 
 
+    /** 工具调用指纹记录：用于循环检测（同工具 + 同参数重复调用） */
+    private final java.util.List<String> toolCallFingerprints = new java.util.ArrayList<>();
+
+    /** 同签名最多允许出现次数，超过即判定为死循环 */
+    private static final int MAX_SAME_CALL = 2;
+
+    /** 计算调用指纹 */
+    private static String fingerprint(String name, String args) {
+        String a = args == null ? "" : args.replaceAll("\s+", "");
+        return name + "|" + a;
+    }
+
     @Override
     public boolean think() {
 
@@ -178,6 +190,27 @@ public  class ToolCallAgent extends ReActAgent{
                         .map(toolcall -> String.format("工具名称：%s, 参数: %s ", toolcall.name(), toolcall.arguments()))
                         .collect(Collectors.joining("\n"));
                 log.info(toolCallInfo);
+                // 循环检测：同一工具 + 同一参数连续超过阈值 -> 打断并转人工
+                int repeats = 0;
+                for (AssistantMessage.ToolCall tc : toolCallList) {
+                    String fp = fingerprint(tc.name(), tc.arguments());
+                    long same = toolCallFingerprints.stream().filter(fp::equals).count();
+                    if (same >= MAX_SAME_CALL) {
+                        repeats++;
+                    }
+                }
+                if (repeats > 0) {
+                    String msg = "检测到重复调用相同工具且参数未变化，已停止以避免死循环。建议转人工处理。";
+                    log.warn("[LoopGuard] agent={} step={} 触发循环检测", getName(), getCurrentStep());
+                    sendSseEvent("thinking", msg);
+                    sendSseEvent("answer", msg);
+                    getMessagesList().add(new AssistantMessage(msg));
+                    return false;
+                }
+                for (AssistantMessage.ToolCall tc : toolCallList) {
+                    toolCallFingerprints.add(fingerprint(tc.name(), tc.arguments()));
+                }
+
                 sendSseEvent("tool_call", "决定使用 " + toolCallList.size() + " 个工具:\n" + toolCallInfo);
 
                 // 注意：不在此处添加 assistantMessage，act() 的 executeToolCalls 会负责添加
