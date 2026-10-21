@@ -61,6 +61,7 @@ public class CustomerServiceController {
     private final MetricsRegistry metricsRegistry;
     private final TraceStore traceStore;
     private final com.qh.ai_agent.cache.AnswerCacheService answerCache;
+    private final com.qh.ai_agent.experiment.FaultInjector faultInjector;
     private final KbParserFactory kbParserFactory;
     private final KnowledgeSearchService knowledgeSearchService;
 
@@ -73,6 +74,14 @@ public class CustomerServiceController {
                            @org.springframework.security.core.annotation.AuthenticationPrincipal
                            com.qh.ai_agent.entity.User currentUser) {
         log.info("[CS-Controller] 收到消息: {}, sessionId: {}", message, sessionId);
+
+        // 降级演练：LLM 处于故障状态时，直接走 FAQ 直出（不调用大模型）
+        if (faultInjector.isFaulty("llm")) {
+            log.warn("[CS-Controller] 检测到 LLM 故障注入，走降级链路: sessionId={}", sessionId);
+            metricsRegistry.incChatRequests();
+            metricsRegistry.incDegraded();
+            return degradedAnswer(message, sessionId);
+        }
 
         ToolCallback[] tools = ToolCallbacks.from(customerServiceTools);
 
@@ -119,6 +128,39 @@ public class CustomerServiceController {
             log.warn("发送 sessionId 失败", e);
         }
 
+        return emitter;
+    }
+
+    /**
+     * 降级链路：LLM 不可用时，直接用知识库 FAQ 结果回答。
+     * 客服场景"给个不完美但有用的答案"远比"报错白屏"好。
+     */
+    private SseEmitter degradedAnswer(String message, String sessionId) {
+        String sid = sessionId != null ? sessionId : "deg_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        SseEmitter emitter = new SseEmitter(30_000L);
+        try {
+            emitter.send(SseEmitter.event().data("{\"type\":\"session_id\",\"content\":\"" + sid + "\"}"));
+            emitter.send(SseEmitter.event().data("{\"type\":\"degraded\",\"content\":\"llm_unavailable_fallback_to_faq\"}"));
+
+            String answer;
+            try {
+                var result = knowledgeSearchService.search(message, 3);
+                if (result != null && result.results() != null && !result.results().isEmpty()) {
+                    answer = "（当前智能回答服务繁忙，以下为知识库原文）\n\n" + result.results().get(0).content();
+                } else {
+                    answer = "抱歉，当前咨询量较大且未找到匹配的答案，已为您转接人工客服。";
+                }
+            } catch (Exception e) {
+                answer = "抱歉，当前咨询量较大，已为您转接人工客服。";
+            }
+
+            String escaped = answer.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+            emitter.send(SseEmitter.event().data("{\"type\":\"answer\",\"content\":\"" + escaped + "\"}"));
+            emitter.send(SseEmitter.event().data("{\"type\":\"done\"}"));
+            emitter.complete();
+        } catch (Exception e) {
+            emitter.completeWithError(e);
+        }
         return emitter;
     }
 

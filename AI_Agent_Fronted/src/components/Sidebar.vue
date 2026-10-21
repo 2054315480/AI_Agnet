@@ -98,6 +98,13 @@
         </svg>
         <span>批量测试</span>
       </button>
+      <button v-if="open && isAdmin" class="sidebar-action-btn" @click="goToExperiments">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 3h6M10 3v6L5 20a1 1 0 0 0 .9 1h12.2a1 1 0 0 0 .9-1L14 9V3"/>
+          <path d="M7.5 14h9"/>
+        </svg>
+        <span>实验中心</span>
+      </button>
       <button v-if="open && isAdmin" class="sidebar-action-btn" @click="goToAnalytics">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="20" x2="18" y2="10"/>
@@ -172,6 +179,10 @@ function switchAgent(agent) {
 
 function goToAdminFaq() {
   router.push('/admin/faq')
+}
+
+function goToExperiments() {
+  router.push('/experiments')
 }
 
 function goToAnalytics() {
