@@ -35,6 +35,14 @@ public class KgQueryService {
     @Value("${cs.kg.hop-decay:0.5}")
     private double hopDecay;
 
+    /** 超过这个 doc_freq 的实体视为"过宽实体"，不参与链接（如单字/通用词） */
+    @Value("${cs.kg.max-entity-doc-freq:40}")
+    private int maxEntityDocFreq;
+
+    /** 单次查询最多参与打分的实体数，避免长 query 命中一堆实体后噪声叠加 */
+    @Value("${cs.kg.max-entities:8}")
+    private int maxEntities;
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -84,24 +92,57 @@ public class KgQueryService {
             return kbScores;
         }
         try {
+            long totalDocs = 1L;
+            try {
+                Long n = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM cs_vector_store", Long.class);
+                if (n != null && n > 0) {
+                    totalDocs = n;
+                }
+            } catch (Exception ignore) {
+                // 拿不到总量就用默认值，只影响权重绝对量级
+            }
+
+            int usedEntities = 0;
             for (Map<String, Object> e : entities) {
+                if (usedEntities >= maxEntities) {
+                    break;
+                }
+                long docFreq = e.get("doc_freq") instanceof Number n2 ? n2.longValue() : 1L;
+                // 过宽实体（例："修" 命中 78/803 篇）对所有文档一视同仁，只会把排序冲平，直接跳过
+                if (docFreq > maxEntityDocFreq) {
+                    continue;
+                }
+                usedEntities++;
+
                 Long id = ((Number) e.get("id")).longValue();
-                // 直连
+                // IDF：越稀有越有区分度。之前统一给 1.0，导致 165 个候选分数完全相同、boost 起不到任何作用
+                double idf = Math.log(1.0 + (double) totalDocs / Math.max(1L, docFreq));
+
+                // 直连命中：同一实体被多个 kb 共享时按权重累加（证据叠加）
                 for (String kbId : jdbcTemplate.queryForList(
                         "SELECT kb_id FROM kg_mention WHERE entity_id = ? LIMIT 50", String.class, id)) {
-                    kbScores.merge(kbId, 1.0, Math::max);
+                    kbScores.merge(kbId, idf, Double::sum);
                 }
-                // 一跳扩散
+                // 一跳扩散：权重按 hopDecay 衰减
                 List<Long> neighbors = jdbcTemplate.queryForList(
                         "SELECT target_id FROM kg_relation WHERE source_id = ? " +
                         "UNION SELECT source_id FROM kg_relation WHERE target_id = ? LIMIT 20",
                         Long.class, id, id);
                 for (Long nid : neighbors) {
+                    double hopWeight = idf * hopDecay;
                     for (String kbId : jdbcTemplate.queryForList(
                             "SELECT kb_id FROM kg_mention WHERE entity_id = ? LIMIT 20", String.class, nid)) {
-                        kbScores.merge(kbId, hopDecay, Math::max);
+                        kbScores.merge(kbId, hopWeight, Double::sum);
                     }
                 }
+            }
+
+            // 归一化到 [0,1]，保证 boost * w 的量级可控（boost 默认 0.05）
+            double max = kbScores.values().stream().mapToDouble(Double::doubleValue).max().orElse(0.0);
+            if (max > 0) {
+                Map<String, Double> normalized = new LinkedHashMap<>();
+                kbScores.forEach((k, v) -> normalized.put(k, v / max));
+                return normalized;
             }
         } catch (Exception ex) {
             log.debug("[KgQuery] 关系扩展失败: {}", ex.getMessage());

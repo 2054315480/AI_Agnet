@@ -30,3 +30,6 @@ AI_Agent_Fronted/temp_*.txt
 # 临时文件
 _a.json
 _b.json
+
+# 本地配置（含密钥，不入库）
+config/application-local.yml

@@ -22,7 +22,10 @@
             {{ running1 ? '运行中…' : '运行实验' }}
           </button>
         </div>
-        <div v-if="r1" class="result">
+        <StateBlock v-if="running1" loading loading-text="实验运行中..." />
+        <StateBlock v-else-if="err1" :error="err1" @retry="runStampede" />
+        <StateBlock v-else-if="attempted1 && !r1" empty empty-text="暂无实验结果" />
+        <div v-if="r1 && !running1" class="result">
           <div class="verdict" :class="r1.pass ? 'ok' : 'fail'">
             {{ r1.pass ? '通过' : '未通过' }}
           </div>
@@ -54,10 +57,16 @@
           </button>
           <button class="ghost-btn" @click="clearFault">清除</button>
         </div>
+        <StateBlock v-if="faultsLoading" loading loading-text="正在读取故障状态..." />
+        <StateBlock v-else-if="faultsError" :error="faultsError" @retry="loadFaults" />
+        <StateBlock v-else-if="faults && !Object.keys(faults).length" empty empty-text="当前无活动故障" />
         <div v-if="faults && Object.keys(faults).length" class="fault-bar">
           当前故障：<span v-for="(v,k) in faults" :key="k" class="fault-item">{{ k }} (剩余 {{ v }})</span>
         </div>
-        <div v-if="r2" class="result">
+        <StateBlock v-if="running2" loading loading-text="故障注入中..." />
+        <StateBlock v-else-if="err2" :error="err2" @retry="injectFault" />
+        <StateBlock v-else-if="attempted2 && !r2" empty empty-text="尚未注入故障" />
+        <div v-if="r2 && !running2" class="result">
           <div class="hint-box">{{ r2.hint }}</div>
         </div>
       </section>
@@ -76,7 +85,10 @@
             {{ running3 ? '运行中…' : '运行实验' }}
           </button>
         </div>
-        <div v-if="r3" class="result">
+        <StateBlock v-if="running3" loading loading-text="缓存实验运行中..." />
+        <StateBlock v-else-if="err3" :error="err3" @retry="runHitRate" />
+        <StateBlock v-else-if="attempted3 && !r3" empty empty-text="暂无缓存实验数据" />
+        <div v-if="r3 && !running3" class="result">
           <table class="kv-table">
             <tr><td>问题数</td><td class="mono">{{ r3.queries }}</td></tr>
             <tr><td>命中</td><td class="mono strong">{{ r3.hits }}</td></tr>
@@ -99,6 +111,9 @@
           <button class="run-btn warn" @click="circuitControl('open')">手动熔断</button>
           <button class="ghost-btn" @click="circuitControl('reset')">恢复</button>
         </div>
+        <StateBlock v-if="resilienceLoading && !resilience" loading loading-text="正在读取熔断状态..." />
+        <StateBlock v-else-if="resilienceError" :error="resilienceError" @retry="loadResilience" />
+        <StateBlock v-else-if="!resilience" empty empty-text="暂无熔断状态数据" />
         <div v-if="resilience" class="result">
           <table class="kv-table">
             <tr><td>熔断状态</td><td class="mono strong">{{ resilience.circuitState }}</td></tr>
@@ -127,7 +142,10 @@
           </button>
         </div>
 
-        <div v-if="r4" class="explain-result">
+        <StateBlock v-if="running4" loading loading-text="检索解释生成中..." />
+        <StateBlock v-else-if="err4" :error="err4" @retry="runExplain" />
+        <StateBlock v-else-if="attempted4 && !r4" empty empty-text="暂无检索解释数据" />
+        <div v-if="r4 && !running4" class="explain-result">
           <div class="explain-meta">
             <span>RRF k = <b class="mono">{{ r4.rrfK }}</b></span>
             <span>向量阈值 = <b class="mono">{{ r4.similarityThreshold }}</b></span>
@@ -186,6 +204,9 @@
           <h2>系统自证</h2>
           <span class="tag">真实运行数据</span>
         </div>
+        <StateBlock v-if="infoLoading && !info" loading loading-text="正在读取系统自证信息..." />
+        <StateBlock v-else-if="infoError" :error="infoError" @retry="loadInfo" />
+        <StateBlock v-else-if="!info" empty empty-text="暂无系统自证数据" />
         <div v-if="info" class="proof-grid">
           <div class="pg-item"><span class="pg-k">构建</span><span class="pg-v mono">{{ info.gitCommit }}</span></div>
           <div class="pg-item"><span class="pg-k">运行</span><span class="pg-v">{{ info.uptimeHuman }}</span></div>
@@ -204,8 +225,10 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { get, post } from '../api/http.js'
 import KgGraphPanel from './KgGraphPanel.vue'
 import CapabilityProbe from './CapabilityProbe.vue'
+import StateBlock from './StateBlock.vue'
 
 const concurrency = ref(20)
 const faultSec = ref(60)
@@ -221,67 +244,94 @@ const r2 = ref(null)
 const r3 = ref(null)
 const info = ref(null)
 const faults = ref({})
+const err1 = ref('')
+const err2 = ref('')
+const err3 = ref('')
+const err4 = ref('')
+const attempted1 = ref(false)
+const attempted2 = ref(false)
+const attempted3 = ref(false)
+const attempted4 = ref(false)
+const infoLoading = ref(false)
+const infoError = ref('')
+const faultsLoading = ref(false)
+const faultsError = ref('')
+const resilienceLoading = ref(false)
+const resilienceError = ref('')
 let timer = null
 
-function headers() {
-  const t = localStorage.getItem('token')
-  return { 'Content-Type': 'application/json', ...(t ? { Authorization: `Bearer ${t}` } : {}) }
-}
-
-async function post(url, body) {
-  const res = await fetch(url, { method: 'POST', headers: headers(), body: JSON.stringify(body || {}) })
-  if (!res.ok) throw new Error('HTTP ' + res.status)
-  return res.json()
+function errorText(e, fallback = '请求失败，请稍后重试') {
+  if (e && e.status === 403) return '无权限（需要管理员）'
+  if (e && e.status === 401) return '登录已过期，请重新登录'
+  return (e && e.message) || fallback
 }
 
 async function runStampede() {
   running1.value = true
+  attempted1.value = true
+  err1.value = ''
   r1.value = null
   try {
-    r1.value = await post('/api/admin/experiments/stampede', { concurrency: concurrency.value })
+    r1.value = await post('/admin/experiments/stampede', { concurrency: concurrency.value })
   } catch (e) {
-    r1.value = { pass: false, expectation: '请求失败: ' + e.message }
+    err1.value = errorText(e, '缓存击穿实验失败')
   } finally {
     running1.value = false
-    loadInfo()
+    loadInfo(true)
   }
 }
 
 async function injectFault() {
   running2.value = true
+  attempted2.value = true
+  err2.value = ''
+  r2.value = null
   try {
-    r2.value = await post('/api/admin/experiments/fault', { target: 'llm', durationSec: faultSec.value })
-    await loadFaults()
+    r2.value = await post('/admin/experiments/fault', { target: 'llm', durationSec: faultSec.value })
+    await loadFaults(true)
   } catch (e) {
-    r2.value = { hint: '注入失败: ' + e.message }
+    err2.value = errorText(e, '故障注入失败')
   } finally {
     running2.value = false
   }
 }
 
 async function clearFault() {
+  err2.value = ''
   try {
-    await post('/api/admin/experiments/fault/clear', {})
-    await loadFaults()
+    await post('/admin/experiments/fault/clear', {})
     r2.value = null
-  } catch (e) { /* ignore */ }
+    attempted2.value = false
+    await loadFaults(true)
+  } catch (e) {
+    err2.value = errorText(e, '清除故障失败')
+  }
 }
 
-async function loadFaults() {
+async function loadFaults(silent = false) {
+  if (!silent || !faults.value) faultsLoading.value = true
+  faultsError.value = ''
   try {
-    const res = await fetch('/api/admin/experiments/fault/status', { headers: headers() })
-    if (res.ok) faults.value = (await res.json()).activeFaults || {}
-  } catch (e) { /* ignore */ }
+    const data = await get('/admin/experiments/fault/status')
+    faults.value = data?.activeFaults || {}
+  } catch (e) {
+    faultsError.value = errorText(e, '故障状态加载失败')
+  } finally {
+    faultsLoading.value = false
+  }
 }
 
 async function runHitRate() {
   running3.value = true
+  attempted3.value = true
+  err3.value = ''
+  r3.value = null
   try {
-    r3.value = await post('/api/admin/experiments/cache-hit-rate', {
+    r3.value = await post('/admin/experiments/cache-hit-rate', {
       queries: ['退货政策是什么？', '退款多久到账？', '保修期多久？', '怎么取消订单？']
     })
   } catch (e) {
-    r3.value = null
+    err3.value = errorText(e, '缓存命中率实验失败')
   } finally {
     running3.value = false
   }
@@ -290,35 +340,50 @@ async function runHitRate() {
 async function runExplain() {
   if (!explainQuery.value.trim()) return
   running4.value = true
+  attempted4.value = true
+  err4.value = ''
   r4.value = null
   try {
-    r4.value = await post('/api/admin/retrieval/explain', { query: explainQuery.value.trim() })
+    r4.value = await post('/admin/retrieval/explain', { query: explainQuery.value.trim() })
   } catch (e) {
-    r4.value = null
+    err4.value = errorText(e, '检索解释失败')
   } finally {
     running4.value = false
   }
 }
 
-async function loadResilience() {
+async function loadResilience(silent = false) {
+  if (!silent || !resilience.value) resilienceLoading.value = true
+  resilienceError.value = ''
   try {
-    const res = await fetch('/api/admin/experiments/resilience', { headers: headers() })
-    if (res.ok) resilience.value = await res.json()
-  } catch (e) { /* ignore */ }
+    resilience.value = await get('/admin/experiments/resilience')
+  } catch (e) {
+    resilienceError.value = errorText(e, '熔断状态加载失败')
+  } finally {
+    resilienceLoading.value = false
+  }
 }
 
 async function circuitControl(action) {
+  resilienceError.value = ''
   try {
-    await post('/api/admin/experiments/resilience/control', { action })
-    await loadResilience()
-  } catch (e) { /* ignore */ }
+    await post('/admin/experiments/resilience/control', { action })
+    await loadResilience(true)
+  } catch (e) {
+    resilienceError.value = errorText(e, '熔断控制失败')
+  }
 }
 
-async function loadInfo() {
+async function loadInfo(silent = false) {
+  if (!silent || !info.value) infoLoading.value = true
+  infoError.value = ''
   try {
-    const res = await fetch('/api/system/info')
-    if (res.ok) info.value = await res.json()
-  } catch (e) { /* ignore */ }
+    info.value = await get('/system/info')
+  } catch (e) {
+    infoError.value = errorText(e, '系统自证信息加载失败')
+  } finally {
+    infoLoading.value = false
+  }
 }
 
 onMounted(() => {
@@ -326,10 +391,17 @@ onMounted(() => {
   loadResilience()
   loadFaults()
   timer = setInterval(() => {
-    if (document.visibilityState === 'visible') { loadInfo(); loadFaults(); loadResilience() }
+    if (document.visibilityState === 'visible') {
+      loadInfo(true)
+      loadFaults(true)
+      loadResilience(true)
+    }
   }, 5000)
 })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+})
 </script>
 
 <style scoped>

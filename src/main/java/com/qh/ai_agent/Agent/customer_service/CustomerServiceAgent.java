@@ -65,6 +65,14 @@ public class CustomerServiceAgent extends ToolCallAgent {
     /** 本次请求是否已记录过一轮历史 */
     private boolean historyRecordedThisTurn = false;
 
+    /** 命中判定阈值：最高绝对相关性低于该值视为"知识库没命中"，转入澄清/追问 */
+    @org.springframework.beans.factory.annotation.Value("${cs.retrieval.hit-threshold:0.25}")
+    private double hitThreshold;
+
+    /** 从工具返回 JSON 里提取 relevance 数值 */
+    private static final java.util.regex.Pattern RELEVANCE_PATTERN =
+            java.util.regex.Pattern.compile("\"relevance\"\\s*:\\s*([0-9]+\\.?[0-9]*)");
+
     /** 本轮检索命中的出处（用于 SSE 推送与落库） */
     private final java.util.List<String> currentSources = new java.util.ArrayList<>();
 
@@ -316,12 +324,22 @@ public class CustomerServiceAgent extends ToolCallAgent {
             }
             TraceContext.Span retrieveSpan = TraceCollector.begin("retrieve");
             String actResult = actAndExtractSuggestions();
-            TraceCollector.end(retrieveSpan, java.util.Map.of("hasResults", hasKnowledgeResults(actResult)));
+            java.util.Map<String, Object> retrieveAttrs = new java.util.LinkedHashMap<>();
+            retrieveAttrs.put("hasResults", hasKnowledgeResults(actResult, intentResult.getIntent()));
+            retrieveAttrs.put("resultCount", countJsonArrayItems(actResult));
+            retrieveAttrs.put("maxRelevance", maxRelevanceOf(actResult));
+            retrieveAttrs.put("matchType", actResult != null && actResult.contains("faq_direct") ? "faq_direct" : "hybrid_search");
+            TraceCollector.end(retrieveSpan, retrieveAttrs);
             TraceCollector.metric("retrievalDone", true);
-            // 从工具结果里提取出处：推 SSE 给前端展示，同时缓存给 Controller 落库
-            captureSources(actResult);
-            // 命中判定只看是否真的检索到档案，不用分数阈值，避免 RRF 低分量级被误判为空
-            boolean knowledgeHit = hasKnowledgeResults(actResult);
+            // 命中判定用绝对相关性阈值；OUT_OF_SCOPE 时阈值加倍，
+            // 避免"1+1等于几"这类域外问题也引用到一篇不相关的文档
+            boolean knowledgeHit = hasKnowledgeResults(actResult, intentResult.getIntent());
+            // 只有真正命中才推送/缓存出处；未命中时清空，避免"没引用却显示出处"
+            if (knowledgeHit) {
+                captureSources(actResult);
+            } else {
+                currentSources.clear();
+            }
 
             // === 4. 知识库没命中：按状态机给出的阶段决策（SLOT_FILLING / CLARIFYING），不再重新猜 ===
             if (!knowledgeHit) {
@@ -490,10 +508,17 @@ public class CustomerServiceAgent extends ToolCallAgent {
                     contextInfo, userInput
             );
             List<Message> messages = List.of(new UserMessage(prompt));
-            ChatResponse response = chatModel.call(new Prompt(messages));
-            String result = response.getResult().getOutput().getText();
-            if (result != null && !result.isBlank() && result.length() > userInput.length()) {
-                return result.trim();
+            TraceContext.Span llmSpan = TraceCollector.begin("llm-reference-resolution");
+            try {
+                ChatResponse response = chatModel.call(new Prompt(messages));
+                TraceCollector.end(llmSpan, TraceCollector.recordChatUsage(response));
+                String result = response.getResult().getOutput().getText();
+                if (result != null && !result.isBlank() && result.length() > userInput.length()) {
+                    return result.trim();
+                }
+            } catch (Exception e) {
+                TraceCollector.fail(llmSpan, e.getClass().getSimpleName());
+                throw e;
             }
         } catch (Exception e) {
             log.warn("[ReferenceResolution] LLM 消解失败，使用原始输入", e);
@@ -702,23 +727,82 @@ public class CustomerServiceAgent extends ToolCallAgent {
      * 只判断有没有结果，不判断分数高低：RRF 融合分的量级只有 0.09 左右，
      * 用 0.3 之类的分数阈值会把正常的融合命中误判成"知识库没有"。
      */
-    private boolean hasKnowledgeResults(String actResult) {
-        if (actResult == null || actResult.isBlank()) {
-            return false;
-        }
-        if (actResult.contains("\"matchType\":\"faq_direct\"")) {
-            return true;
+    /** 统计 results 数组里的条目数（粗略但足够用于链路展示） */
+    private int countJsonArrayItems(String actResult) {
+        if (actResult == null) {
+            return 0;
         }
         int idx = actResult.indexOf("\"results\":[");
         if (idx < 0) {
+            return 0;
+        }
+        int count = 0;
+        for (int i = idx; i < actResult.length(); i++) {
+            if (actResult.charAt(i) == '{') {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** 取 results 里最大的 relevance，用于链路展示 */
+    private double maxRelevanceOf(String actResult) {
+        if (actResult == null) {
+            return 0;
+        }
+        double max = 0;
+        java.util.regex.Matcher m = RELEVANCE_PATTERN.matcher(actResult);
+        while (m.find()) {
+            try {
+                max = Math.max(max, Double.parseDouble(m.group(1)));
+            } catch (NumberFormatException ignore) {
+            }
+        }
+        return max;
+    }
+
+    private boolean hasKnowledgeResults(String actResult) {
+        return hasKnowledgeResults(actResult, null);
+    }
+
+    private boolean hasKnowledgeResults(String actResult, com.qh.ai_agent.intent.model.CustomerIntent intent) {
+        if (actResult == null || actResult.isBlank()) {
             return false;
         }
-        int open = actResult.indexOf('[', idx);
-        int close = actResult.indexOf(']', open);
-        if (close < 0) {
+        // FAQ 精确命中（Lucene BM25 直连）本身就是强信号，直接算命中
+        if (actResult.contains("\"matchType\":\"faq_direct\"")) {
             return true;
         }
-        return actResult.substring(open + 1, close).trim().length() > 0;
+        // 结果数组为空：未命中
+        if (!actResult.contains("\"results\":[{")) {
+            return false;
+        }
+        // 取所有 relevance 的最大值作为绝对相关性。只看"结果非空"会让无关问题也命中
+        // （BM25 top1 归一化后恒为 1.0 的老问题），这里用绝对阈值兜住。
+        double maxRelevance = -1;
+        java.util.regex.Matcher m = RELEVANCE_PATTERN.matcher(actResult);
+        while (m.find()) {
+            try {
+                maxRelevance = Math.max(maxRelevance, Double.parseDouble(m.group(1)));
+            } catch (NumberFormatException ignore) {
+                // 忽略脏值
+            }
+        }
+        if (maxRelevance < 0) {
+            // 旧格式没有 relevance 字段时退回"非空即命中"，避免误伤
+            return true;
+        }
+        // 域外意图要求更高的绝对相关性才算命中（否则宁可澄清也不引用无关文档）
+        double effectiveThreshold = hitThreshold;
+        if (intent == com.qh.ai_agent.intent.model.CustomerIntent.OUT_OF_SCOPE) {
+            effectiveThreshold = Math.max(hitThreshold, 0.6);
+        }
+        if (maxRelevance < effectiveThreshold) {
+            log.info("[StateMachine] 最高相关性 {} < 阈值 {}（intent={}），判定为知识库未命中",
+                    String.format("%.3f", maxRelevance), effectiveThreshold, intent);
+            return false;
+        }
+        return true;
     }
 
     /** 转人工收口：置 HANDOFF 阶段、推送事件、保存上下文 */

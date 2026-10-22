@@ -37,15 +37,14 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { get } from '../api/http.js'
 
 const info = ref(null)
 let timer = null
 
 async function load() {
   try {
-    const res = await fetch('/api/system/info')
-    if (!res.ok) return
-    info.value = await res.json()
+    info.value = await get('/system/info')
   } catch (e) {
     // 静默失败，不影响主界面
   }

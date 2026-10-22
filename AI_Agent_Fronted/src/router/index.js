@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getToken } from '../api/http.js'
 
 const routes = [
   {
@@ -50,7 +51,7 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   document.title = to.meta.title || '客服工作台'
-  const token = localStorage.getItem('token')
+  const token = getToken()
   if (to.meta.requiresAuth && !token) {
     return { name: 'Login' }
   }

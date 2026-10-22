@@ -114,6 +114,7 @@ public class RerankService {
                         .category(origin.getCategory())
                         .sourceFile(origin.getSourceFile())
                         .score(score)
+                .rawScore(score)
                         .source(RetrievalResult.Source.HYBRID)
                         .build());
             }

@@ -68,7 +68,17 @@ public class SchemaInitializer {
                     + "relation VARCHAR(64),"
                     + "evidence_kb_id VARCHAR(128))",
             "CREATE INDEX IF NOT EXISTS idx_kg_relation_src ON kg_relation (source_id)",
-            "CREATE INDEX IF NOT EXISTS idx_kg_relation_tgt ON kg_relation (target_id)"
+            "CREATE INDEX IF NOT EXISTS idx_kg_relation_tgt ON kg_relation (target_id)",
+            // ---- 评测历史（批次 A：EvalService 会写入 eval_run）----
+            "CREATE TABLE IF NOT EXISTS eval_run ("
+                    + "id BIGSERIAL PRIMARY KEY,"
+                    + "run_name VARCHAR(128),"
+                    + "sample_count INT,"
+                    + "recall_at_5 DOUBLE PRECISION,"
+                    + "mrr DOUBLE PRECISION,"
+                    + "ndcg_at_5 DOUBLE PRECISION,"
+                    + "config_snapshot JSONB,"
+                    + "created_at TIMESTAMPTZ DEFAULT now())"
     };
 
     @PostConstruct
@@ -83,5 +93,49 @@ public class SchemaInitializer {
             }
         }
         log.info("[SchemaInitializer] 观测/图谱表检查完成: {}/{} 条语句执行成功", ok, DDL.length);
+        ensureVectorUniqueIndex();
+    }
+
+    /**
+     * 向量写入幂等的唯一索引（批次 F/H）。
+     *
+     * 只有在这个索引缺失时才会动手：先探测是否有重复 kb_id，有就先按 ctid 保留一条再建索引，
+     * 避免在已有脏数据的库上直接 CREATE UNIQUE INDEX 失败。
+     */
+    private void ensureVectorUniqueIndex() {
+        try {
+            Integer exists = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM pg_indexes WHERE indexname = 'uq_cs_vector_kb_id'", Integer.class);
+            if (exists != null && exists > 0) {
+                return;
+            }
+            if (tableExists("cs_vector_store")) {
+                Integer dupGroups = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM (SELECT metadata->>'kb_id' AS k FROM cs_vector_store "
+                                + "WHERE metadata->>'kb_id' IS NOT NULL GROUP BY 1 HAVING COUNT(*) > 1) t",
+                        Integer.class);
+                if (dupGroups != null && dupGroups > 0) {
+                    int removed = jdbcTemplate.update(
+                            "DELETE FROM cs_vector_store a USING cs_vector_store b "
+                                    + "WHERE a.ctid < b.ctid AND a.metadata->>'kb_id' = b.metadata->>'kb_id' "
+                                    + "AND a.metadata->>'kb_id' IS NOT NULL");
+                    log.warn("[SchemaInitializer] 向量表存在 {} 组重复 kb_id，已清理 {} 行后再建唯一索引", dupGroups, removed);
+                }
+                jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_cs_vector_kb_id "
+                        + "ON cs_vector_store ((metadata->>'kb_id')) WHERE metadata->>'kb_id' IS NOT NULL");
+                log.info("[SchemaInitializer] 向量唯一索引 uq_cs_vector_kb_id 已就绪");
+            }
+        } catch (Exception e) {
+            log.warn("[SchemaInitializer] 建立向量唯一索引失败（不影响启动）: {}", e.getMessage());
+        }
+    }
+
+    private boolean tableExists(String table) {
+        try {
+            String r = jdbcTemplate.queryForObject("SELECT to_regclass(?)::text", String.class, table);
+            return r != null && !r.isBlank();
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

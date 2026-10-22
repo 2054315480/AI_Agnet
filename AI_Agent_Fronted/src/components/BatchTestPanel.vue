@@ -132,7 +132,7 @@
 
 <script setup>
 import { ref } from 'vue'
-import { useAuth } from '../api/auth.js'
+import { post } from '../api/http.js'
 
 const visible = ref(false)
 const loading = ref(false)
@@ -141,8 +141,6 @@ const results = ref(null)
 const totalQuestions = ref(0)
 const testedCount = ref(0)
 const fileInput = ref(null)
-
-const { getHeaders } = useAuth()
 
 const progressPercent = ref(0)
 
@@ -184,19 +182,7 @@ async function startTest() {
   formData.append('domain', 'test')
 
   try {
-    const res = await fetch('/api/customer-service/batch-test', {
-      method: 'POST',
-      headers: { 'Authorization': getHeaders()['Authorization'] },
-      body: formData
-    })
-
-    if (!res.ok) {
-      const err = await res.json()
-      throw new Error(err.message || err.error || '请求失败')
-    }
-
-    const data = await res.json()
-    results.value = data
+    results.value = await post('/customer-service/batch-test', formData)
   } catch (e) {
     alert('批量测试失败: ' + e.message)
   } finally {

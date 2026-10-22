@@ -1,77 +1,79 @@
 import { ref } from 'vue'
-
-const API_BASE = '/api'
+import { request, getToken, setToken, clearToken, authHeaders } from './http.js'
 
 const user = ref(null)
-const token = ref(localStorage.getItem('token') || '')
+const token = ref(getToken())
 const isAuthenticated = ref(!!token.value)
 
-function getHeaders() {
-  const headers = { 'Content-Type': 'application/json' }
-  if (token.value) {
-    headers['Authorization'] = `Bearer ${token.value}`
-  }
-  return headers
+function applyToken(nextToken) {
+  token.value = nextToken || ''
+  isAuthenticated.value = !!token.value
+  if (token.value) setToken(token.value)
+  else clearToken()
 }
 
 async function register(username, password) {
-  const res = await fetch(`${API_BASE}/auth/register`, {
+  const data = await request('/auth/register', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password })
+    body: { username, password }
   })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || '注册失败')
-  token.value = data.token
-  user.value = data.user
-  isAuthenticated.value = true
-  localStorage.setItem('token', data.token)
+  applyToken(data.token)
+  user.value = data.user || null
   return data
 }
 
 async function login(username, password) {
-  const res = await fetch(`${API_BASE}/auth/login`, {
+  const data = await request('/auth/login', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password })
+    body: { username, password }
   })
-  const data = await res.json()
-  if (!res.ok) {
-    console.error(`[Auth] 登录失败: ${res.status}`, data)
-    throw new Error(data.error || '登录失败')
-  }
-  token.value = data.token
-  user.value = data.user
-  isAuthenticated.value = true
-  localStorage.setItem('token', data.token)
+  applyToken(data.token)
+  user.value = data.user || null
   console.log('[Auth] 登录成功:', username)
   return data
 }
 
 function logout() {
-  token.value = ''
+  applyToken('')
   user.value = null
-  isAuthenticated.value = false
-  localStorage.removeItem('token')
 }
 
 async function fetchUser() {
-  if (!token.value) return
+  token.value = getToken()
+  if (!token.value) {
+    isAuthenticated.value = false
+    return null
+  }
+
   try {
-    const res = await fetch(`${API_BASE}/auth/me`, { headers: getHeaders() })
-    if (res.ok) {
-      user.value = await res.json()
-      isAuthenticated.value = true
-    } else {
-      console.warn(`[Auth] /auth/me 返回 ${res.status}，清除旧 token`)
-      logout()
-    }
+    const data = await request('/auth/me')
+    user.value = data
+    isAuthenticated.value = true
+    return data
   } catch (e) {
-    console.warn('[Auth] fetchUser 异常:', e.message)
-    logout()
+    // 401 由 http.js 在校验 /auth/me 确实失效后统一清 token；网络抖动保留 token。
+    if (e && e.status === 401) {
+      token.value = ''
+      user.value = null
+      isAuthenticated.value = false
+    } else {
+      console.warn('[Auth] 获取用户信息失败，保留本地登录态:', e.message)
+      isAuthenticated.value = !!getToken()
+    }
+    return null
   }
 }
 
 export function useAuth() {
-  return { user, token, isAuthenticated, register, login, logout, fetchUser, getHeaders }
+  return {
+    user,
+    token,
+    isAuthenticated,
+    register,
+    login,
+    logout,
+    fetchUser,
+    // 兼容旧调用；新代码应直接使用 http.js 的 authHeaders/request
+    getHeaders: authHeaders
+  }
 }

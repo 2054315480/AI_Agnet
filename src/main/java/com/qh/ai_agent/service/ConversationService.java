@@ -69,7 +69,7 @@ public class ConversationService {
     }
 
     /** 保存消息（含客服分析字段） */
-    public void addMessage(String conversationId, String role, String content,
+    public Long addMessage(String conversationId, String role, String content,
                            String intent, java.util.Map<String, String> slots, Double confidence,
                            boolean isHandoff, boolean isClarification, java.util.Map<String, Object> sources) {
         ConversationMessage msg = new ConversationMessage();
@@ -90,6 +90,7 @@ public class ConversationService {
             conv.setUpdatedAt(LocalDateTime.now());
             conversationMapper.updateById(conv);
         }
+        return msg.getId();
     }
 
     public List<ConversationMessage> getMessages(String conversationId) {

@@ -37,6 +37,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { get } from '../api/http.js'
 
 const probes = [
   { key: 'sysinfo', label: '系统自证信息', method: 'GET', path: '/api/system/info',
@@ -71,11 +72,6 @@ const running = ref(false)
 
 const currentProbe = computed(() => probes.find(p => p.key === selected.value) || probes[0])
 
-function headers() {
-  const t = localStorage.getItem('token')
-  return { 'Content-Type': 'application/json', ...(t ? { Authorization: `Bearer ${t}` } : {}) }
-}
-
 async function run() {
   running.value = true
   raw.value = ''
@@ -84,20 +80,16 @@ async function run() {
   const t0 = performance.now()
   try {
     const p = currentProbe.value
-    const res = await fetch(p.path, { headers: headers() })
-    status.value = res.status
-    const text = await res.text()
-    try {
-      const json = JSON.parse(text)
-      raw.value = JSON.stringify(json, null, 2)
-      summary.value = p.summary ? p.summary(json) : ''
-    } catch (e) {
-      raw.value = text
-      summary.value = '（非 JSON 响应）'
-    }
+    const data = await get(p.path)
+    status.value = 200
+    raw.value = JSON.stringify(data, null, 2)
+    summary.value = p.summary ? p.summary(data) : ''
   } catch (e) {
-    raw.value = '请求失败: ' + e.message
-    summary.value = ''
+    status.value = e.status || null
+    raw.value = e.data
+      ? JSON.stringify(e.data, null, 2)
+      : ('请求失败: ' + e.message)
+    summary.value = e.status === 403 ? '无权限（需要管理员）' : ('请求失败: ' + e.message)
   } finally {
     elapsed.value = Math.round(performance.now() - t0)
     running.value = false

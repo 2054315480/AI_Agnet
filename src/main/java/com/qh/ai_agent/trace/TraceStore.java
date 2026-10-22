@@ -22,13 +22,25 @@ public class TraceStore {
             return;
         }
         try {
+            Integer totalTokens = toInt(ctx.getMetrics().get("totalTokens"));
+            if (totalTokens == null) {
+                Integer prompt = toInt(ctx.getMetrics().get("promptTokens"));
+                Integer completion = toInt(ctx.getMetrics().get("completionTokens"));
+                if (prompt != null && completion != null) {
+                    totalTokens = prompt + completion;
+                }
+            }
+            String degraded = ctx.getDegradedReason();
+            if (totalTokens == null && degraded == null && hasLlmSpan(ctx)) {
+                degraded = "token_usage_unavailable";
+            }
             jdbcTemplate.update(
                 "INSERT INTO agent_trace (trace_id, session_id, user_query, rewritten, intent, status, " +
                 "total_ms, total_tokens, degraded_reason) VALUES (?,?,?,?,?,?,?,?,?) " +
                 "ON CONFLICT (trace_id) DO NOTHING",
                 ctx.getTraceId(), ctx.getSessionId(), truncate(ctx.getUserQuery(), 2000),
                 truncate(ctx.getRewrittenQuery(), 2000), ctx.getIntent(), ctx.getStatus(),
-                (int) ctx.totalMs(), toInt(ctx.getMetrics().get("totalTokens")), ctx.getDegradedReason());
+                (int) ctx.totalMs(), totalTokens, degraded);
 
             for (TraceContext.Span span : ctx.getSpans()) {
                 jdbcTemplate.update(
@@ -55,5 +67,10 @@ public class TraceStore {
             return n.intValue();
         }
         return null;
+    }
+
+    private static boolean hasLlmSpan(TraceContext ctx) {
+        return ctx.getSpans().stream()
+                .anyMatch(s -> s.getName() != null && s.getName().startsWith("llm"));
     }
 }

@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { useAuth } from '../api/auth.js'
+import { request } from '../api/http.js'
 
 const STORAGE_KEY = 'ai-agent-conversations'
 
@@ -33,19 +34,13 @@ function toDateStr(ts) {
 }
 
 export function useConversations() {
-  const { isAuthenticated, getHeaders } = useAuth()
-  const API_BASE = '/api'
+  const { isAuthenticated } = useAuth()
 
   // ---- Backend API helpers ----
 
-  async function apiFetch(path, options = {}) {
-    const headers = { ...getHeaders(), ...(options.headers || {}) }
-    const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      throw new Error(text || `API error ${res.status}`)
-    }
-    return res.json()
+  function apiFetch(path, options = {}) {
+    // 统一请求入口负责附加 Authorization、序列化 JSON 与 401 会话校验。
+    return request(path, options)
   }
 
   async function loadFromServer() {
@@ -176,12 +171,11 @@ export function useConversations() {
     if (isAuthenticated.value) {
       apiFetch('/conversations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: {
           id: conv.id,
           title: conv.title,
           agentType: conv.agent
-        })
+        }
       }).catch(e => console.warn('Failed to create conversation on server:', e))
     }
 
@@ -264,8 +258,7 @@ export function useConversations() {
       if (isAuthenticated.value) {
         apiFetch(`/conversations/${convId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title: conv.title })
+          body: { title: conv.title }
         }).catch(() => {})
       }
     }
@@ -276,11 +269,10 @@ export function useConversations() {
     if (isAuthenticated.value && !msg.loading && msg.content) {
       apiFetch(`/conversations/${convId}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: {
           role: msg.isUser ? 'user' : 'assistant',
           content: msg.content
-        })
+        }
       }).catch(e => console.warn('Failed to persist message:', e))
     }
 
@@ -301,11 +293,10 @@ export function useConversations() {
     if (isAuthenticated.value && updates.loading === false && !lastMsg.isUser && lastMsg.content) {
       apiFetch(`/conversations/${convId}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: {
           role: 'assistant',
           content: lastMsg.content
-        })
+        }
       }).catch(() => {})
     }
   }

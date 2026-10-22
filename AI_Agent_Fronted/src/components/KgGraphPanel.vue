@@ -73,6 +73,7 @@ import * as echarts from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { post } from '../api/http.js'
 
 echarts.use([GraphChart, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -134,21 +135,12 @@ const relationRows = computed(() => {
   }).sort((a, b) => a.relation.localeCompare(b.relation))
 })
 
-function headers() {
-  const t = localStorage.getItem('token')
-  return { 'Content-Type': 'application/json', ...(t ? { Authorization: `Bearer ${t}` } : {}) }
-}
-
 async function loadGraph(q) {
   const text = q === undefined ? query.value : q
   loading.value = true
   errMsg.value = ''
   try {
-    const res = await fetch('/api/admin/kg/graph', {
-      method: 'POST', headers: headers(), body: JSON.stringify({ query: text, limit: 25 })
-    })
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    const data = await res.json()
+    const data = await post('/admin/kg/graph', { query: text, limit: 25 })
     graph.value = data
     rawText.value = JSON.stringify(data, null, 2)
     await nextTick()

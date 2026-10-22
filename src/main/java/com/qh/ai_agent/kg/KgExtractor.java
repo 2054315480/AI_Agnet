@@ -137,7 +137,12 @@ public class KgExtractor {
 
     private void matchDict(String text, Collection<String> words, String type, Map<String, Entity> out) {
         for (String w : words) {
-            if (w != null && !w.isEmpty() && text.contains(w)) {
+            // 单字词（修/查/换…）在本域几乎必然过宽：doc_freq 极高、对排序零区分度，
+            // 之前线上就抽出过 doc_freq=78 的实体"修"，把整张图变成了噪声源，这里直接跳过。
+            if (w == null || w.trim().length() < 2) {
+                continue;
+            }
+            if (text.contains(w)) {
                 out.putIfAbsent(w, new Entity(w, type, normalize(w)));
             }
         }

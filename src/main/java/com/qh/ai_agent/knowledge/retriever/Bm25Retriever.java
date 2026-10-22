@@ -140,14 +140,14 @@ public class Bm25Retriever {
             Query luceneQuery = buildQuery(query);
 
             TopDocs topDocs = searcher.search(luceneQuery, topK);
-            // 归一化 BM25 分数
-            float maxScore = topDocs.scoreDocs.length > 0
-                    ? topDocs.scoreDocs[0].score : 1.0f;
 
             for (ScoreDoc scoreDoc : topDocs.scoreDocs) {
                 Document doc = searcher.doc(scoreDoc.doc);
-                double normalizedScore = maxScore > 0
-                        ? (double) (scoreDoc.score / maxScore) : 0.0;
+                // 不再用 top1 归一化：那会让"最不相关的一次检索"也拿到 1.0，
+                // 是"无关问题却自信命中"的直接原因。这里改用单调饱和函数映射到 0~1，
+                // 绝对值保留在 rawScore 里，排序交给 RRF。
+                double rawBm25 = scoreDoc.score;
+                double saturated = rawBm25 / (rawBm25 + 20.0);
 
                 results.add(RetrievalResult.builder()
                         .kbId(doc.get("kbId"))
@@ -156,7 +156,8 @@ public class Bm25Retriever {
                         .domain(doc.get("domain"))
                         .category(doc.get("category"))
                         .sourceFile(doc.get("sourceFile"))
-                        .score(normalizedScore)
+                        .score(saturated)
+                        .rawScore(saturated)
                         .source(RetrievalResult.Source.BM25)
                         .build());
             }

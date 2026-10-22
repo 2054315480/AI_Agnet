@@ -30,8 +30,17 @@ public class RetrievalResult implements Comparable<RetrievalResult> {
     /** 来源文件名 */
     private String sourceFile;
 
-    /** 检索相关性分数（0~1 或 BM25 原始分归一化后） */
+    /**
+     * 排序分：RRF 融合后的名次分（量级 1/(k+rank)，约 0.05~0.2），
+     * 只用于排序与融合，不能当"相关性阈值"用。
+     */
     private double score;
+
+    /**
+     * 绝对相关性分（0~1）：向量=余弦相似度、BM25=饱和归一化、精排=relevance_score。
+     * 命中判定只看这个字段，避免"BM25 top1 恒为 1.0"把无关问题判成强命中。
+     */
+    private double rawScore;
 
     /** 检索来源 */
     private Source source;

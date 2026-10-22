@@ -98,7 +98,9 @@ public class CustomerServiceTools {
                 KnowledgeSearchResult r = results.get(i);
                 if (i > 0) sb.append(",");
                 sb.append("{");
-                sb.append("\"content\":").append(escapeJson(r.content()));
+                // 清洗 Q:/A: 标记，避免模型照抄内部格式
+                sb.append("\"content\":").append(escapeJson(
+                        com.qh.ai_agent.service.AnswerFormatter.clean(r.content())));
                 if (r.source() != null && !r.source().isEmpty()) {
                     sb.append(",\"source\":\"").append(r.source()).append("\"");
                 }

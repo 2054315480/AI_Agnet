@@ -1,22 +1,12 @@
-import { fetchSSE, fetchMultipartSSE } from '../utils/sse.js'
-import { useAuth } from './auth.js'
-
-const API_BASE = '/api'
-
-function authHeaders() {
-  const { token } = useAuth()
-  if (token.value) {
-    return { 'Authorization': `Bearer ${token.value}` }
-  }
-  return {}
-}
+import { fetchSSE } from '../utils/sse.js'
+import { request, authHeaders } from './http.js'
 
 /**
- * 智能客服 SSE 流式对话
- * 事件模式：每个 data 是 JSON，包含 type 字段（intent/clarification/handoff/tool_call/tool_result/answer/done/session_id）
+ * 智能客服 SSE 流式对话。
+ * 事件模式下每条 data 都是 JSON，包含 type 字段。
  */
 export function chatCustomerServiceStream(message, sessionId, { onStep, onComplete, onError }) {
-  let url = `${API_BASE}/customer-service/chat?message=${encodeURIComponent(message)}`
+  let url = `/api/customer-service/chat?message=${encodeURIComponent(message)}`
   if (sessionId) {
     url += `&sessionId=${encodeURIComponent(sessionId)}`
   }
@@ -28,16 +18,9 @@ export function chatCustomerServiceStream(message, sessionId, { onStep, onComple
   })
 }
 
-/**
- * 结束会话：后端会把该 session 的状态置为 CLOSED，下次同 sessionId 提问会重新初始化
- */
-export async function closeSession(sessionId) {
-  const res = await fetch(`${API_BASE}/customer-service/session/${encodeURIComponent(sessionId)}/close`, {
-    method: 'POST',
-    headers: authHeaders()
+/** 结束会话。 */
+export function closeSession(sessionId) {
+  return request(`/customer-service/session/${encodeURIComponent(sessionId)}/close`, {
+    method: 'POST'
   })
-  if (!res.ok) {
-    throw new Error('HTTP ' + res.status)
-  }
-  return res.json().catch(() => ({}))
 }

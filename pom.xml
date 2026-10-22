@@ -284,6 +284,16 @@
     </repositories>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <!-- 本地配置含密钥，绝不能打进 jar；本地运行时从 ./config/application-local.yml 读取 -->
+                <excludes>
+                    <exclude>application-local.yml</exclude>
+                    <exclude>**/application-local.yml</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

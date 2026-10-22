@@ -131,22 +131,37 @@
         <div class="charts-grid">
           <div class="chart-panel chart-panel-ratio">
             <h3 class="chart-subtitle">转人工与澄清占比</h3>
-            <div v-if="ratioChartError" class="chart-message chart-message-error">{{ permissionDenied ? '无权限查看（需管理员）' : '数据加载失败' }}</div>
-            <div v-else-if="ratioTotal === 0" class="chart-message">暂无占比数据</div>
+            <StateBlock v-if="ratioChartLoading" loading loading-text="占比数据加载中..." />
+            <StateBlock
+              v-else-if="ratioChartError"
+              :error="permissionDenied ? '无权限查看（需管理员）' : '占比数据加载失败'"
+              @retry="loadData"
+            />
+            <StateBlock v-else-if="ratioTotal === 0" empty empty-text="暂无占比数据" />
             <BaseChart v-else :option="ratioChartOption" height="280px" />
           </div>
 
           <div class="chart-panel chart-panel-intent">
             <h3 class="chart-subtitle">意图分布</h3>
-            <div v-if="intentChartError" class="chart-message chart-message-error">{{ permissionDenied ? '无权限查看（需管理员）' : '数据加载失败' }}</div>
-            <div v-else-if="intentDist.length === 0" class="chart-message">暂无意图分布数据</div>
+            <StateBlock v-if="intentChartLoading" loading loading-text="意图分布加载中..." />
+            <StateBlock
+              v-else-if="intentChartError"
+              :error="permissionDenied ? '无权限查看（需管理员）' : '意图分布加载失败'"
+              @retry="loadData"
+            />
+            <StateBlock v-else-if="intentDist.length === 0" empty empty-text="暂无意图分布数据" />
             <BaseChart v-else :option="intentChartOption" :height="intentChartHeight" />
           </div>
 
           <div class="chart-panel chart-panel-trend">
             <h3 class="chart-subtitle">会话趋势</h3>
-            <div v-if="trendChartError" class="chart-message chart-message-error">{{ permissionDenied ? '无权限查看（需管理员）' : '数据加载失败' }}</div>
-            <div v-else-if="trendPoints.length === 0" class="chart-message">暂无会话趋势数据</div>
+            <StateBlock v-if="trendChartLoading" loading loading-text="会话趋势加载中..." />
+            <StateBlock
+              v-else-if="trendChartError"
+              :error="permissionDenied ? '无权限查看（需管理员）' : '会话趋势加载失败'"
+              @retry="loadTrendData"
+            />
+            <StateBlock v-else-if="trendPoints.length === 0" empty empty-text="暂无会话趋势数据" />
             <BaseChart v-else :option="trendChartOption" height="260px" />
           </div>
         </div>
@@ -182,7 +197,9 @@
           </div>
         </div>
 
-        <div v-if="sessions.length === 0 && !sessionsLoading" class="empty-hint">暂无会话数据</div>
+        <StateBlock v-if="sessionsLoading" loading loading-text="会话列表加载中..." />
+        <StateBlock v-else-if="sessionError" :error="sessionError" @retry="loadSessionList" />
+        <StateBlock v-else-if="sessions.length === 0" empty empty-text="暂无会话数据" />
         <div v-else class="session-table-wrap">
           <table class="session-table">
             <thead>
@@ -263,10 +280,9 @@
             </svg>
           </button>
         </div>
-        <div v-if="detailLoading" class="loading-state" style="padding: 40px 0;">
-          <div class="spinner"></div>
-          <span>加载中...</span>
-        </div>
+        <StateBlock v-if="detailLoading" loading loading-text="会话详情加载中..." />
+        <StateBlock v-else-if="detailError" :error="detailError" @retry="viewDetail(detailConversationId)" />
+        <StateBlock v-else-if="!sessionDetail.messages || !sessionDetail.messages.length" empty empty-text="该会话暂无消息" />
         <div v-else class="modal-body">
           <div class="detail-meta">
             <span><strong>会话：</strong>{{ sessionDetail.title || '新对话' }}</span>
@@ -303,9 +319,12 @@ import {
   getSessionList,
   getSessionDetail,
   getExportAllCsvUrl,
-  getExportSessionCsvUrl
+  getExportSessionCsvUrl,
+  downloadCsv
 } from '../api/analytics.js'
+import { clearToken } from '../api/http.js'
 import BaseChart from './charts/BaseChart.vue'
+import StateBlock from './StateBlock.vue'
 
 /* ---- 全局状态 ---- */
 const loading = ref(true)
@@ -314,19 +333,32 @@ const overview = ref({})
 const intentDist = ref([])
 
 /* ---- 图表独立状态：任一接口失败只降级对应图表 ---- */
+const intentChartLoading = ref(true)
+const trendChartLoading = ref(true)
+const ratioChartLoading = ref(true)
 const intentChartError = ref(false)
 const trendChartError = ref(false)
 const ratioChartError = ref(false)
 const permissionDenied = ref(false)
+const sessionError = ref('')
+const detailError = ref('')
+const detailConversationId = ref(null)
 
 function isForbidden(err) {
-  return err && err.response && err.response.status === 403
+  return err && (err.status === 403 || err.response?.status === 403)
+}
+
+function errorText(err, fallback = '数据加载失败') {
+  if (isForbidden(err)) return '无权限（需要管理员）'
+  if (err && err.status === 401) return '登录已过期，请重新登录'
+  return (err && err.message) || fallback
 }
 
 function relogin() {
-  localStorage.removeItem('token')
+  clearToken()
   localStorage.removeItem('user')
-  window.location.href = '/login'
+  const current = `${window.location.pathname}${window.location.search}`
+  window.location.href = `/login?redirect=${encodeURIComponent(current)}`
 }
 const trendPoints = ref([])
 
@@ -627,9 +659,12 @@ function formatTime(t) {
 async function loadData(options = {}) {
   const silent = options.silent === true
   if (!silent) loading.value = true
+  intentChartLoading.value = true
+  ratioChartLoading.value = true
   intentChartError.value = false
   trendChartError.value = false
   ratioChartError.value = false
+  permissionDenied.value = false
 
   try {
     const [overviewResult, intentResult] = await Promise.allSettled([
@@ -644,6 +679,7 @@ async function loadData(options = {}) {
       permissionDenied.value = isForbidden(overviewResult.reason)
       console.error('加载总览数据失败:', overviewResult.reason)
     }
+    ratioChartLoading.value = false
 
     if (intentResult.status === 'fulfilled') {
       intentDist.value = Array.isArray(intentResult.value) ? intentResult.value : []
@@ -652,10 +688,15 @@ async function loadData(options = {}) {
       permissionDenied.value = permissionDenied.value || isForbidden(intentResult.reason)
       console.error('加载意图分布失败:', intentResult.reason)
     }
+    intentChartLoading.value = false
 
     await loadSessionList()
     await loadTrendData()
   } catch (e) {
+    ratioChartError.value = true
+    intentChartError.value = true
+    ratioChartLoading.value = false
+    intentChartLoading.value = false
     console.error('加载分析数据失败:', e)
   } finally {
     if (!silent) loading.value = false
@@ -708,6 +749,7 @@ function handleVisibilityChange() {
 
 /** 趋势图单独请求较大分页；接口限制或失败时回退当前分页列表 */
 async function loadTrendData() {
+  trendChartLoading.value = true
   trendChartError.value = false
   const requestedSize = 500
   let rows = []
@@ -731,9 +773,12 @@ async function loadTrendData() {
     rows = sessions.value
     if (!rows.length) {
       trendChartError.value = true
+      permissionDenied.value = permissionDenied.value || isForbidden(e)
       trendPoints.value = []
       return
     }
+  } finally {
+    trendChartLoading.value = false
   }
 
   trendPoints.value = buildTrendPoints(rows)
@@ -742,6 +787,7 @@ async function loadTrendData() {
 /** 加载分页会话列表 */
 async function loadSessionList() {
   sessionsLoading.value = true
+  sessionError.value = ''
   try {
     const params = {}
     if (query.value.page) params.page = query.value.page
@@ -761,6 +807,9 @@ async function loadSessionList() {
       totalPages: result.totalPages || 0
     }
   } catch (e) {
+    sessions.value = []
+    permissionDenied.value = permissionDenied.value || isForbidden(e)
+    sessionError.value = errorText(e, '会话列表加载失败')
     console.error('加载会话列表失败:', e)
   } finally {
     sessionsLoading.value = false
@@ -806,49 +855,45 @@ const visiblePages = computed(() => {
 
 /* ---- 查看会话详情 ---- */
 async function viewDetail(conversationId) {
+  detailConversationId.value = conversationId
   showDetail.value = true
   detailLoading.value = true
+  detailError.value = ''
   try {
     const detail = await getSessionDetail(conversationId)
     sessionDetail.value = detail || { messages: [] }
   } catch (e) {
-    console.error('加载会话详情失败:', e)
     sessionDetail.value = { messages: [] }
+    detailError.value = errorText(e, '会话详情加载失败')
+    if (isForbidden(e)) permissionDenied.value = true
+    console.error('加载会话详情失败:', e)
   } finally {
     detailLoading.value = false
   }
 }
 
 /* ---- CSV 导出 ---- */
-function exportAll() {
-  const token = localStorage.getItem('token')
-  const url = getExportAllCsvUrl()
-  downloadCsv(url, 'dialog_logs_all.csv', token)
+async function exportAll() {
+  await saveCsv(getExportAllCsvUrl(), 'dialog_logs_all.csv')
 }
 
-function exportSession(conversationId) {
-  const token = localStorage.getItem('token')
-  const url = getExportSessionCsvUrl(conversationId)
-  downloadCsv(url, `dialog_${conversationId}.csv`, token)
+async function exportSession(conversationId) {
+  await saveCsv(getExportSessionCsvUrl(conversationId), `dialog_${conversationId}.csv`)
 }
 
-/** 通用 CSV 下载 */
-function downloadCsv(url, filename, token) {
-  fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
-  })
-    .then(res => {
-      if (!res.ok) throw new Error('导出失败')
-      return res.blob()
-    })
-    .then(blob => {
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = filename
-      a.click()
-      URL.revokeObjectURL(a.href)
-    })
-    .catch(e => alert('导出失败: ' + e.message))
+/** 带鉴权下载并保存 CSV */
+async function saveCsv(url, filename) {
+  try {
+    const blob = await downloadCsv(url)
+    const objectUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(objectUrl)
+  } catch (e) {
+    alert('导出失败: ' + e.message)
+  }
 }
 
 onMounted(() => {

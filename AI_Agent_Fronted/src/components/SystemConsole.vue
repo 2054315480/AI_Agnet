@@ -11,28 +11,62 @@
     </header>
 
     <section v-if="tab === 'caps'" class="cn-body">
-      <div class="caps-summary" v-if="caps">
-        已实现 <b>{{ caps.implemented }}</b> / {{ caps.total }} 项能力
-        <span class="muted">（数据实时来自后端，刷新即更新）</span>
-      </div>
-      <div class="caps-grid">
-        <article v-for="c in caps?.items || []" :key="c.name" class="cap-card" :class="c.status">
-          <div class="cap-top">
-            <span class="cap-cat">{{ c.category }}</span>
-            <span class="cap-status" :class="c.status">
-              {{ c.status === 'implemented' ? '已实现' : (c.status === 'partial' ? '部分' : '计划中') }}
-            </span>
+      <!-- 加载骨架：接口未返回时不再整页空白 -->
+      <div v-if="capsLoading" class="caps-skeleton" aria-label="能力矩阵加载中">
+        <div class="caps-skeleton-summary"></div>
+        <div class="caps-skeleton-grid">
+          <div v-for="n in 6" :key="n" class="caps-skeleton-card">
+            <span class="sk-line sk-line-sm"></span>
+            <span class="sk-line sk-line-lg"></span>
+            <span class="sk-line"></span>
+            <span class="sk-line sk-line-md"></span>
           </div>
-          <h3 class="cap-name">{{ c.name }}</h3>
-          <p class="cap-evidence">{{ c.evidence }}</p>
-          <div class="cap-metrics" v-if="c.metrics && Object.keys(c.metrics).length">
-            <span v-for="(v, k) in c.metrics" :key="k" class="cap-metric">
-              <span class="cm-k">{{ k }}</span>
-              <span class="cm-v mono">{{ v === true ? '有' : (v === false ? '无' : v) }}</span>
-            </span>
-          </div>
-        </article>
+        </div>
       </div>
+
+      <StateBlock v-else-if="capsError" :error="capsError" @retry="loadCaps">
+        <template #actions>
+          <div class="state-actions">
+            <button class="state-action-btn" type="button" @click="loadCaps">重试</button>
+            <button class="state-action-btn" type="button" @click="relogin">重新登录</button>
+          </div>
+        </template>
+      </StateBlock>
+
+      <StateBlock
+        v-else-if="!caps || !(caps.items || []).length"
+        empty
+        empty-text="暂无能力矩阵数据"
+      >
+        <template #empty>
+          <button class="state-action-btn" type="button" @click="relogin">重新登录</button>
+        </template>
+      </StateBlock>
+
+      <template v-else>
+        <div class="caps-summary">
+          已实现 <b>{{ caps.implemented }}</b> / {{ caps.total }} 项能力
+          <span class="muted">（数据实时来自后端，刷新即更新）</span>
+        </div>
+        <div class="caps-grid">
+          <article v-for="c in caps.items" :key="c.name" class="cap-card" :class="c.status">
+            <div class="cap-top">
+              <span class="cap-cat">{{ c.category }}</span>
+              <span class="cap-status" :class="c.status">
+                {{ c.status === 'implemented' ? '已实现' : (c.status === 'partial' ? '部分' : '计划中') }}
+              </span>
+            </div>
+            <h3 class="cap-name">{{ c.name }}</h3>
+            <p class="cap-evidence">{{ c.evidence }}</p>
+            <div class="cap-metrics" v-if="c.metrics && Object.keys(c.metrics).length">
+              <span v-for="(v, k) in c.metrics" :key="k" class="cap-metric">
+                <span class="cm-k">{{ k }}</span>
+                <span class="cm-v mono">{{ v === true ? '是' : (v === false ? '否' : v) }}</span>
+              </span>
+            </div>
+          </article>
+        </div>
+      </template>
     </section>
 
     <section v-if="tab === 'demo'" class="cn-body">
@@ -44,7 +78,16 @@
           {{ demoRunning ? '演示运行中…' : '运行完整演示' }}
         </button>
       </div>
-      <div v-if="demo" class="demo-result">
+
+      <StateBlock v-if="demoRunning" loading loading-text="正在运行完整演示..." />
+      <StateBlock v-else-if="demoError" :error="demoError" @retry="runDemo" />
+      <StateBlock
+        v-else-if="!demo"
+        empty
+        empty-text="尚未运行演示，点击右上角按钮开始。"
+      />
+
+      <div v-else class="demo-result">
         <div class="demo-summary" :class="demo.passed === demo.total ? 'ok' : 'warn'">
           {{ demo.passed }} / {{ demo.total }} 项通过 · 耗时 {{ demo.elapsedMs }}ms · 构建 {{ demo.gitCommit }}
         </div>
@@ -68,7 +111,7 @@
 
     <section v-if="tab === 'eval'" class="cn-body">
       <div class="eval-controls">
-        <label>样本数 <input v-model.number="evalSize" type="number" min="10" max="100" /></label>
+        <label>样本数<input v-model.number="evalSize" type="number" min="10" max="100" /></label>
         <label>模式
           <select v-model="evalMode">
             <option value="paraphrase">paraphrase（同义改写，真实难度）</option>
@@ -80,103 +123,157 @@
           {{ evalRunning ? '评测中…' : '运行评测' }}
         </button>
       </div>
-      <div v-if="evalResult && !evalResult.error" class="eval-cards">
-        <div class="ecard"><span class="ec-k">Recall@5</span><span class="ec-v mono">{{ evalResult.recallAtK.toFixed(3) }}</span></div>
-        <div class="ecard"><span class="ec-k">MRR</span><span class="ec-v mono">{{ evalResult.mrr.toFixed(3) }}</span></div>
-        <div class="ecard"><span class="ec-k">nDCG@5</span><span class="ec-v mono">{{ evalResult.ndcgAtK.toFixed(3) }}</span></div>
-        <div class="ecard"><span class="ec-k">样本 / 耗时</span><span class="ec-v mono">{{ evalResult.sampleCount }} / {{ evalResult.elapsedMs }}ms</span></div>
-      </div>
-      <div v-if="evalHistory.length" class="eval-history">
-        <div class="eh-title">历史对比</div>
-        <table class="demo-table">
-          <thead><tr><th>版本</th><th>样本</th><th>Recall@5</th><th>MRR</th><th>nDCG@5</th><th>时间</th></tr></thead>
-          <tbody>
-            <tr v-for="h in evalHistory" :key="h.run_name + h.created_at">
-              <td class="mono">{{ h.run_name }}</td>
-              <td class="mono">{{ h.sample_count }}</td>
-              <td class="mono">{{ fmt(h.recall_at_5) }}</td>
-              <td class="mono">{{ fmt(h.mrr) }}</td>
-              <td class="mono">{{ fmt(h.ndcg_at_5) }}</td>
-              <td class="mono muted">{{ String(h.created_at).slice(0, 19).replace('T', ' ') }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div v-if="evalResult && evalResult.details" class="eval-details">
-        <div class="eh-title">明细（{{ evalResult.details.length }} 条）</div>
-        <div v-for="d in evalResult.details" :key="d.id" class="ed-row">
-          <span class="ed-badge" :class="d.recall > 0 ? 'ok' : 'fail'">{{ d.recall > 0 ? '命中' : '未命中' }}</span>
-          <span class="ed-q">{{ d.query }}</span>
-          <span class="ed-m mono">recall={{ d.recall }}</span>
+
+      <StateBlock v-if="evalRunning" loading loading-text="正在运行评测..." />
+      <StateBlock v-else-if="evalError" :error="evalError" @retry="runEval" />
+
+      <template v-else>
+        <div v-if="evalResult" class="eval-cards">
+          <div class="ecard"><span class="ec-k">Recall@5</span><span class="ec-v mono">{{ evalResult.recallAtK.toFixed(3) }}</span></div>
+          <div class="ecard"><span class="ec-k">MRR</span><span class="ec-v mono">{{ evalResult.mrr.toFixed(3) }}</span></div>
+          <div class="ecard"><span class="ec-k">nDCG@5</span><span class="ec-v mono">{{ evalResult.ndcgAtK.toFixed(3) }}</span></div>
+          <div class="ecard"><span class="ec-k">样本 / 耗时</span><span class="ec-v mono">{{ evalResult.sampleCount }} / {{ evalResult.elapsedMs }}ms</span></div>
         </div>
-      </div>
+        <StateBlock
+          v-else
+          empty
+          empty-text="尚未运行评测，运行后会在此展示指标与明细。"
+        />
+
+        <StateBlock v-if="historyLoading" loading loading-text="正在加载评测历史..." />
+        <StateBlock v-else-if="historyError" :error="historyError" @retry="loadHistory" />
+        <StateBlock v-else-if="!evalHistory.length" empty empty-text="暂无评测历史" />
+        <div v-else class="eval-history">
+          <div class="eh-title">历史对比</div>
+          <table class="demo-table">
+            <thead><tr><th>版本</th><th>样本</th><th>Recall@5</th><th>MRR</th><th>nDCG@5</th><th>时间</th></tr></thead>
+            <tbody>
+              <tr v-for="h in evalHistory" :key="h.run_name + h.created_at">
+                <td class="mono">{{ h.run_name }}</td>
+                <td class="mono">{{ h.sample_count }}</td>
+                <td class="mono">{{ fmt(h.recall_at_5) }}</td>
+                <td class="mono">{{ fmt(h.mrr) }}</td>
+                <td class="mono">{{ fmt(h.ndcg_at_5) }}</td>
+                <td class="mono muted">{{ String(h.created_at).slice(0, 19).replace('T', ' ') }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="evalResult && evalResult.details" class="eval-details">
+          <div class="eh-title">明细（{{ evalResult.details.length }} 条）</div>
+          <div v-for="d in evalResult.details" :key="d.id" class="ed-row">
+            <span class="ed-badge" :class="d.recall > 0 ? 'ok' : 'fail'">{{ d.recall > 0 ? '命中' : '未命中' }}</span>
+            <span class="ed-q">{{ d.query }}</span>
+            <span class="ed-m mono">recall={{ d.recall }}</span>
+          </div>
+        </div>
+      </template>
     </section>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { get, post, clearToken } from '../api/http.js'
+import StateBlock from './StateBlock.vue'
 
 const tab = ref('caps')
 const caps = ref(null)
+const capsLoading = ref(false)
+const capsError = ref('')
 const demo = ref(null)
 const demoRunning = ref(false)
+const demoError = ref('')
 const evalResult = ref(null)
 const evalHistory = ref([])
+const historyLoading = ref(false)
+const historyError = ref('')
 const evalRunning = ref(false)
+const evalError = ref('')
 const evalSize = ref(30)
 const evalMode = ref('paraphrase')
 
-function headers() {
-  const t = localStorage.getItem('token')
-  return { 'Content-Type': 'application/json', ...(t ? { Authorization: `Bearer ${t}` } : {}) }
+function errorText(e, fallback = '数据加载失败，请稍后重试') {
+  if (e && e.status === 403) return '无权限（需要管理员）'
+  if (e && e.status === 401) return '登录已过期，请重新登录'
+  return (e && e.message) || fallback
 }
 
-async function post(url, body) {
-  const res = await fetch(url, { method: 'POST', headers: headers(), body: JSON.stringify(body || {}) })
-  if (!res.ok) throw new Error('HTTP ' + res.status)
-  return res.json()
-}
-
-async function get(url) {
-  const res = await fetch(url, { headers: headers() })
-  if (!res.ok) throw new Error('HTTP ' + res.status)
-  return res.json()
+function relogin() {
+  clearToken()
+  localStorage.removeItem('user')
+  const current = `${window.location.pathname}${window.location.search}`
+  window.location.href = `/login?redirect=${encodeURIComponent(current)}`
 }
 
 async function loadCaps() {
-  try { caps.value = await get('/api/system/capabilities') } catch (e) { /* ignore */ }
+  capsLoading.value = true
+  capsError.value = ''
+  caps.value = null
+  try {
+    caps.value = await get('/system/capabilities')
+  } catch (e) {
+    capsError.value = errorText(e, '能力矩阵加载失败')
+  } finally {
+    capsLoading.value = false
+  }
 }
 
 async function loadHistory() {
-  try { evalHistory.value = await get('/api/admin/eval/history?limit=10') } catch (e) { /* ignore */ }
+  historyLoading.value = true
+  historyError.value = ''
+  try {
+    const data = await get('/admin/eval/history', { limit: 10 })
+    evalHistory.value = Array.isArray(data) ? data : (data?.items || [])
+  } catch (e) {
+    evalHistory.value = []
+    historyError.value = errorText(e, '评测历史加载失败')
+  } finally {
+    historyLoading.value = false
+  }
 }
 
 async function runDemo() {
   demoRunning.value = true
   demo.value = null
-  try { demo.value = await post('/api/admin/demo/run', {}) } catch (e) {
-    demo.value = { total: 1, passed: 0, elapsedMs: 0, gitCommit: '-', results: [{ name: '演示请求失败', expected: '-', actual: e.message, pass: false, ms: 0 }] }
-  } finally { demoRunning.value = false }
+  demoError.value = ''
+  try {
+    demo.value = await post('/admin/demo/run', {})
+  } catch (e) {
+    demoError.value = errorText(e, '演示请求失败')
+  } finally {
+    demoRunning.value = false
+  }
 }
 
 async function runEval() {
   evalRunning.value = true
   evalResult.value = null
+  evalError.value = ''
   try {
-    evalResult.value = await post('/api/admin/eval/auto', {
-      size: evalSize.value, topK: 5, mode: evalMode.value,
+    evalResult.value = await post('/admin/eval/auto', {
+      size: evalSize.value,
+      topK: 5,
+      mode: evalMode.value,
       runName: evalMode.value + '-' + Date.now()
     })
     await loadHistory()
   } catch (e) {
-    evalResult.value = { error: e.message }
-  } finally { evalRunning.value = false }
+    evalError.value = errorText(e, '评测运行失败')
+  } finally {
+    evalRunning.value = false
+  }
 }
 
-function fmt(v) { return v == null ? '-' : Number(v).toFixed(3) }
+function fmt(v) {
+  return v == null ? '-' : Number(v).toFixed(3)
+}
 
-onMounted(() => { loadCaps(); loadHistory() })
+onMounted(() => {
+  loadCaps()
+  loadHistory()
+})
 </script>
 
 <style scoped>
@@ -240,4 +337,16 @@ h1 { font-family: var(--font-serif); font-size: 1.375rem; }
 .ed-m { color: var(--text-tertiary); font-size: 0.6875rem; }
 
 @media (max-width: 900px) { .eval-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.caps-skeleton-summary { height: 18px; width: 220px; border-radius: var(--radius-xs); background: var(--bg-hover); margin-bottom: 14px; }
+.caps-skeleton-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.caps-skeleton-card { display: flex; flex-direction: column; gap: 9px; padding: 14px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--bg-sidebar); }
+.sk-line { display: block; height: 10px; width: 100%; border-radius: var(--radius-xs); background: var(--bg-hover); animation: state-pulse 1.4s ease-in-out infinite; }
+.sk-line-sm { width: 34%; height: 8px; }
+.sk-line-lg { width: 62%; height: 16px; }
+.sk-line-md { width: 76%; }
+@keyframes state-pulse { 0%, 100% { opacity: .45; } 50% { opacity: .9; } }
+.state-actions { display: flex; justify-content: center; gap: 8px; }
+.state-action-btn { padding: 5px 14px; border: 1px solid var(--border-secondary); border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--bg-hover); font-size: .75rem; }
+.state-action-btn:hover { color: var(--accent); border-color: var(--accent-border); }
 </style>

@@ -1,7 +1,11 @@
 package com.qh.ai_agent.trace;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.metadata.Usage;
+import org.springframework.ai.chat.model.ChatResponse;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -11,21 +15,18 @@ import java.util.concurrent.atomic.AtomicLong;
  *   TraceContext ctx = TraceCollector.start(traceId);   // 请求入口开启
  *   TraceContext.Span s = TraceCollector.begin("retrieve");
  *   ... 业务 ...
- *   TraceCollector.end(s, Map.of("candidates", 20));    // 结束时结束 span
- *   TraceCollector.finish();                            // 请求收尾，触发持久化与清理
+ *   TraceCollector.end(s, Map.of("candidates", 20));    // 结束 span
+ *   TraceCollector.finish();                            // 请求收尾
  */
 @Slf4j
 public final class TraceCollector {
 
     private static final ThreadLocal<TraceContext> CURRENT = new ThreadLocal<>();
 
-    /** 采集开关：默认关闭，由配置或请求头开启，避免生产环境无谓开销 */
-    private static volatile boolean enabled = true;  // 演示项目默认开启，生产可置 false
+    private static volatile boolean enabled = true;
 
-    /** 实时回调：开启后每产生一个 span 就通知（用于 SSE 实时推送） */
     private static final ThreadLocal<SpanListener> LISTENER = new ThreadLocal<>();
 
-    /** 简单的累计计数，用于自证条 */
     private static final AtomicLong TOTAL_TRACES = new AtomicLong();
 
     private TraceCollector() {
@@ -33,6 +34,10 @@ public final class TraceCollector {
 
     public interface SpanListener {
         void onSpan(TraceContext.Span span, String phase);
+    }
+
+    public interface MetricsListener {
+        void onMetrics(Map<String, Object> metrics);
     }
 
     public static void setEnabled(boolean value) {
@@ -47,7 +52,7 @@ public final class TraceCollector {
         return TOTAL_TRACES.get();
     }
 
-    /** 开启采集；返回 null 表示未启用 */
+    /** 开启采集；返回 null 表示未启用。 */
     public static TraceContext start(String traceId, String sessionId, String userQuery, SpanListener listener) {
         if (!enabled) {
             return null;
@@ -80,7 +85,7 @@ public final class TraceCollector {
         return span;
     }
 
-    public static void end(TraceContext.Span span, java.util.Map<String, Object> attrs) {
+    public static void end(TraceContext.Span span, Map<String, Object> attrs) {
         TraceContext ctx = CURRENT.get();
         if (ctx == null || span == null) {
             return;
@@ -126,17 +131,82 @@ public final class TraceCollector {
         }
     }
 
-    public interface MetricsListener {
-        void onMetrics(java.util.Map<String, Object> metrics);
+    /**
+     * 从 ChatResponse.metadata.usage 采集 token。
+     *
+     * 同一个 trace 可能有多次 LLM 调用（ReAct 多轮、指代消解），这里累加到
+     * TraceContext.metrics，TraceStore 再用 totalTokens 落 agent_trace.total_tokens。
+     * 返回本次调用的 token 数，调用方可直接并入 llm span.attributes，便于事后算输入/输出费用。
+     */
+    public static Map<String, Object> recordChatUsage(ChatResponse response) {
+        Map<String, Object> attrs = new LinkedHashMap<>();
+        TraceContext ctx = CURRENT.get();
+        if (ctx == null) {
+            return attrs;
+        }
+
+        Usage usage = null;
+        try {
+            if (response != null && response.getMetadata() != null) {
+                usage = response.getMetadata().getUsage();
+            }
+        } catch (Exception e) {
+            log.debug("[TraceCollector] 读取 usage 失败: {}", e.getMessage());
+        }
+        if (usage == null) {
+            markDegraded("token_usage_unavailable: ChatResponse.metadata.usage is null");
+            return attrs;
+        }
+
+        Integer prompt = usage.getPromptTokens();
+        Integer completion = usage.getCompletionTokens();
+        Integer total = usage.getTotalTokens();
+        if (prompt == null && completion == null && total == null) {
+            markDegraded("token_usage_unavailable: usage fields are null");
+            return attrs;
+        }
+
+        int p = prompt == null ? 0 : prompt;
+        int c = completion == null ? 0 : completion;
+        int t = total == null ? p + c : total;
+
+        synchronized (ctx) {
+            if (p > 0) {
+                addIntMetric(ctx, "promptTokens", p);
+            }
+            if (c > 0) {
+                addIntMetric(ctx, "completionTokens", c);
+            }
+            if (t > 0) {
+                addIntMetric(ctx, "totalTokens", t);
+            }
+        }
+
+        if (prompt != null) {
+            attrs.put("promptTokens", prompt);
+        }
+        if (completion != null) {
+            attrs.put("completionTokens", completion);
+        }
+        if (total != null || t > 0) {
+            attrs.put("totalTokens", t);
+        }
+        return attrs;
     }
 
-    /** 请求收尾：清理 ThreadLocal，防止线程池复用串数据 / 内存泄漏 */
+    private static void addIntMetric(TraceContext ctx, String key, int delta) {
+        Object old = ctx.getMetrics().get(key);
+        int base = old instanceof Number n ? n.intValue() : 0;
+        ctx.getMetrics().put(key, base + delta);
+    }
+
+    /** 请求收尾：清理 ThreadLocal，防止线程池复用串数据 / 内存泄漏。 */
     public static void finish() {
         CURRENT.remove();
         LISTENER.remove();
     }
 
-    /** 供异步线程继承上下文（配合 TaskDecorator 使用） */
+    /** 供异步线程继承上下文（配合 TaskDecorator 使用）。 */
     public static void attach(TraceContext ctx, SpanListener listener) {
         if (ctx != null) {
             CURRENT.set(ctx);

@@ -151,8 +151,9 @@ public class HybridRetriever {
         if (bm25Results.isEmpty()) {
             log.debug("[HybridRetriever] 仅向量路有结果，跳过 RRF: vector={}, k={}",
                     vectorResults.size(), effectiveRrfK);
-            // 单路命中时同样要做图谱增强，否则 BM25 没命中就完全失去图谱加权
-            List<RetrievalResult> vectorOnly = new ArrayList<>(vectorResults);
+            // 单路命中时同样要做图谱增强，否则 BM25 没命中就完全失去图谱加权。
+            // 同时把分数统一成 RRF 名次分（1/(k+rank)），保证三条路径的 score 量纲一致。
+            List<RetrievalResult> vectorOnly = rankOnly(vectorResults, effectiveRrfK);
             applyKgBoost(query, vectorOnly);
             if (rerankEnabled && rerankService != null && vectorOnly.size() > 1) {
                 return rerankService.rerank(query, vectorOnly, topK);
@@ -162,7 +163,7 @@ public class HybridRetriever {
         if (vectorResults.isEmpty()) {
             log.debug("[HybridRetriever] 仅 BM25 路有结果，跳过 RRF: bm25={}, k={}",
                     bm25Results.size(), effectiveRrfK);
-            List<RetrievalResult> bm25Only = new ArrayList<>(bm25Results);
+            List<RetrievalResult> bm25Only = rankOnly(bm25Results, effectiveRrfK);
             applyKgBoost(query, bm25Only);
             if (rerankEnabled && rerankService != null && bm25Only.size() > 1) {
                 return rerankService.rerank(query, bm25Only, topK);
@@ -404,6 +405,24 @@ public class HybridRetriever {
      * <p>score(doc) = Σ 1/(rrfK + rank_i(doc))，其中 rrfK 来自
      * cs.retrieval.rrf-k（默认 10），rank_i 从 1 开始计数。</p>
      */
+    /**
+     * 单路结果转成 RRF 名次分：score = 1/(k+rank)，rawScore 保留原始绝对相关性。
+     * 这样"只有向量"和"只有 BM25"时返回的 score 与 RRF 融合后处于同一量纲，
+     * 上层可以用 rawScore 做命中判定，不再出现"无关查询 top1 = 1.0"。
+     */
+    private List<RetrievalResult> rankOnly(List<RetrievalResult> list, int k) {
+        List<RetrievalResult> out = new ArrayList<>(list.size());
+        for (int i = 0; i < list.size(); i++) {
+            RetrievalResult r = list.get(i);
+            if (r.getRawScore() <= 0) {
+                r.setRawScore(r.getScore());
+            }
+            r.setScore(1.0 / (k + i + 1));
+            out.add(r);
+        }
+        return out;
+    }
+
     private List<RetrievalResult> reciprocalRankFusion(
             List<RetrievalResult> list1, List<RetrievalResult> list2, int fusionK) {
 

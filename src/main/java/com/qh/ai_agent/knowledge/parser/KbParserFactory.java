@@ -3,6 +3,7 @@ package com.qh.ai_agent.knowledge.parser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -15,6 +16,10 @@ public class KbParserFactory {
     private final MdKbParser mdKbParser;
     private final DocxKbParser docxKbParser;
     private final PdfKbParser pdfKbParser;
+    private final XlsxKbParser xlsxKbParser;
+    private final CsvKbParser csvKbParser;
+    private final JsonKbParser jsonKbParser;
+    private final TxtKbParser txtKbParser;
 
     private Map<String, KbParser> parserMap;
 
@@ -29,11 +34,15 @@ public class KbParserFactory {
             parserMap = Map.of(
                     "md", mdKbParser,
                     "docx", docxKbParser,
-                    "pdf", pdfKbParser
+                    "pdf", pdfKbParser,
+                    "xlsx", xlsxKbParser,
+                    "csv", csvKbParser,
+                    "json", jsonKbParser,
+                    "txt", txtKbParser
             );
         }
 
-        String ext = getExtension(filename).toLowerCase();
+        String ext = getExtension(filename).toLowerCase(Locale.ROOT);
         return parserMap.get(ext);
     }
 

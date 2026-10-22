@@ -67,7 +67,10 @@ public  class ToolCallAgent extends ReActAgent{
         this.availableTools = availableTools;
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager != null ? toolCallingManager : buildToolCallingManager(availableTools);
+        // streamUsage(true)：让兼容端点（DashScope）在流式响应末尾带上 usage，
+        // 否则 trace 里的 total_tokens 永远是 null，成本无法核算
         this.chatOptions = OpenAiChatOptions.builder()
+                .streamUsage(true)
                 .build();
     }
 
@@ -135,6 +138,7 @@ public  class ToolCallAgent extends ReActAgent{
 
         OpenAiChatOptions.Builder optionsBuilder = OpenAiChatOptions.builder()
                 .internalToolExecutionEnabled(false)
+                .streamUsage(true)
                 .toolCallbacks(Arrays.asList(availableTools));
 
         if (hasMedia && visionModel != null) {
@@ -153,9 +157,11 @@ public  class ToolCallAgent extends ReActAgent{
             try {
                 turn = callModelWithStreaming(prompt);
                 com.qh.ai_agent.trace.MetricsRegistry.incLlmCalls();
-                com.qh.ai_agent.trace.TraceCollector.end(llmSpan, java.util.Map.of(
-                        "toolCalls", turn.toolCalls() == null ? 0 : turn.toolCalls().size(),
-                        "chars", turn.text() == null ? 0 : turn.text().length()));
+                java.util.Map<String, Object> llmAttrs = new java.util.LinkedHashMap<>();
+                llmAttrs.put("toolCalls", turn.toolCalls() == null ? 0 : turn.toolCalls().size());
+                llmAttrs.put("chars", turn.text() == null ? 0 : turn.text().length());
+                llmAttrs.putAll(com.qh.ai_agent.trace.TraceCollector.recordChatUsage(turn.usageResponse()));
+                com.qh.ai_agent.trace.TraceCollector.end(llmSpan, llmAttrs);
             } catch (Exception e) {
                 com.qh.ai_agent.trace.TraceCollector.fail(llmSpan, e.getClass().getSimpleName());
                 throw e;
@@ -279,8 +285,9 @@ public  class ToolCallAgent extends ReActAgent{
 
     // ==================== 流式输出支持 ====================
 
-    /** 一次模型调用的聚合结果：原始响应含 tool calls、完整文本、工具调用列表 */
-    private record ModelTurn(ChatResponse response, String text, List<AssistantMessage.ToolCall> toolCalls) {}
+    /** 一次模型调用的聚合结果：原始响应含 tool calls、完整文本、工具调用列表、usage 响应 */
+    private record ModelTurn(ChatResponse response, String text, List<AssistantMessage.ToolCall> toolCalls,
+                             ChatResponse usageResponse) {}
 
     /**
      * 调用模型：SSE 模式下优先 token 级流式，增量文本实时推给前端；
@@ -327,7 +334,9 @@ public  class ToolCallAgent extends ReActAgent{
                     }
                 }
             }
-            return new ModelTurn(response, fullText, toolCalls);
+            ChatResponse usageResponse = pickUsageResponse(chunks);
+            return new ModelTurn(response, fullText, toolCalls,
+                    usageResponse != null ? usageResponse : response);
         } catch (Exception e) {
             log.warn("[Stream] 流式调用不可用，降级为一次性调用: {}", e.getMessage());
             return toTurn(chatModel.call(prompt));
@@ -341,7 +350,18 @@ public  class ToolCallAgent extends ReActAgent{
         }
         AssistantMessage message = response.getResult().getOutput();
         List<AssistantMessage.ToolCall> calls = message.getToolCalls();
-        return new ModelTurn(response, message.getText(), calls != null ? calls : List.of());
+        return new ModelTurn(response, message.getText(), calls != null ? calls : List.of(), response);
+    }
+
+    /** 流式响应里 usage 通常只在最后一个分片，向前找最后一个非空 usage。 */
+    private static ChatResponse pickUsageResponse(List<ChatResponse> chunks) {
+        for (int i = chunks.size() - 1; i >= 0; i--) {
+            ChatResponse r = chunks.get(i);
+            if (r != null && r.getMetadata() != null && r.getMetadata().getUsage() != null) {
+                return r;
+            }
+        }
+        return null;
     }
 
     /**

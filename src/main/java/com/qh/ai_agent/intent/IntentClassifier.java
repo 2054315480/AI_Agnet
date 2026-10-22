@@ -117,9 +117,42 @@ public class IntentClassifier {
      * 关键词预筛：覆盖所有主要意图，高置信度直接返回，不走 LLM
      * 按优先级从高到低排列（转人工 > 退款 > 投诉 > ... > 闲聊）
      */
+    /** 明显与客服业务无关的输入特征（算术、天气、创作、影视、公司信息等） */
+    private static final java.util.regex.Pattern OUT_OF_DOMAIN_PATTERN = java.util.regex.Pattern.compile(
+            "^\\s*\\d+\\s*[+\\-*/×÷]\\s*\\d+.*"          // 1+1、3*5
+            + "|等于(几|多少)|平方|立方|开方"
+            + "|天气|气温|下雨|雾霾"
+            + "|写(一)?[篇首个]?(诗|作文|文章|小说)|作诗"
+            + "|(推荐|想听|来一?[首个])[^，。]{0,8}(电影|电视剧|动漫|综艺|歌)"
+            + "|电影|电视剧|动漫|综艺|歌曲|音乐"
+            + "|(公司|你们)?的?(老板|创始人|CEO|董事长)是谁"
+            + "|你是谁|你叫什么|你会什么"
+            + "|股票|彩票|算命|星座"
+            + "|笑话|几号|几点|星期几|翻译");
+
+    /** 域外判定：命中特征且不含任何客服业务词，才算 OUT_OF_SCOPE */
+    boolean looksOutOfDomain(String input) {
+        if (input == null || input.isBlank()) {
+            return false;
+        }
+        if (!OUT_OF_DOMAIN_PATTERN.matcher(input).find()) {
+            return false;
+        }
+        // 含业务词时不做拦截（例如"退货政策是什么"不会被误伤）
+        return !containsAny(input, "订单", "退款", "退货", "换货", "保修", "物流", "配送",
+                "发票", "套餐", "宽带", "信用卡", "账户", "理赔", "运费", "商品", "产品", "客服");
+    }
+
     /** 包内可见：便于单测直接验证关键词预筛，不依赖大模型 */
     IntentResult tryKeywordClassification(String input, Map<String, String> existingSlots) {
         Map<String, String> slots = existingSlots != null ? new HashMap<>(existingSlots) : new HashMap<>();
+
+        // 0. 域外问题优先拦截：算术/天气/写诗/影视/公司信息等与客服业务无关的输入，
+        //    之前会被大模型判成 POLICY_QUERY 然后去检索知识库，导致"1+1等于几"引用店铺支付文档。
+        if (looksOutOfDomain(input)) {
+            return IntentResult.builder().intent(CustomerIntent.OUT_OF_SCOPE)
+                    .confidence(0.9).slots(slots).needsClarification(false).build();
+        }
 
         // 1. 转人工：先看显式表达，再看弱关键词（弱关键词要排除"客服电话/人工智能"等语境）
         if (containsAny(input, HUMAN_REQUEST_KEYWORDS.toArray(new String[0]))) {

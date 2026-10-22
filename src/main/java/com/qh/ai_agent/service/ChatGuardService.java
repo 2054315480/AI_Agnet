@@ -40,6 +40,8 @@ public class ChatGuardService {
             return answer;
         }
         String filtered = bannedWordService.filterBannedWords(answer);
+        // 去掉 Q:/A: 内部标记与重复问句，避免把知识库格式直接抛给用户
+        filtered = AnswerFormatter.clean(filtered);
         return sensitiveInfoService.maskSensitiveInfo(filtered);
     }
 }

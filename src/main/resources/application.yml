@@ -108,6 +108,13 @@ cs:
   # 链路追踪：观测台实时面板的数据源
   trace:
     enabled: true
+  # 独立标注集与成本估算
+  eval:
+    labeled-set: ./data/eval/labeled_set.jsonl
+  # qwen-plus 估算单价：元 / 千 token（仅用于展示，不落库）
+  cost:
+    input-per-1k: 0.0008
+    output-per-1k: 0.002
   # 知识图谱（实体链接增强检索）
   kg:
     enabled: false
