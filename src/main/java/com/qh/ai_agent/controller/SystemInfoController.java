@@ -67,6 +67,11 @@ public class SystemInfoController {
         counters.put("retrievalCalls", metrics.getRetrievalCalls());
         counters.put("rerankCalls", metrics.getRerankCalls());
         counters.put("traces", TraceCollector.totalTraces());
+        Map<String, Object> buildInfo = new LinkedHashMap<>();
+        buildInfo.put("commit", gitCommit());
+        buildInfo.put("builtAt", readBuildInfo("builtAt"));
+        buildInfo.put("jarSha256", readBuildInfo("jarSha256"));
+        data.put("buildInfo", buildInfo);
         data.put("counters", counters);
 
         Map<String, Object> tables = new LinkedHashMap<>();
@@ -110,6 +115,26 @@ public class SystemInfoController {
         return m + " 分钟";
     }
 
+    /** 读部署信息文件（默认工作目录下的 BUILD_INFO），用于在无 .git 的部署机上报告真实版本 */
+    private String readBuildInfo(String key) {
+        try {
+            java.nio.file.Path path = java.nio.file.Path.of(
+                    System.getProperty("app.build-info", "BUILD_INFO"));
+            if (!java.nio.file.Files.exists(path)) {
+                return null;
+            }
+            for (String line : java.nio.file.Files.readAllLines(path)) {
+                int idx = line.indexOf('=');
+                if (idx > 0 && line.substring(0, idx).trim().equals(key)) {
+                    return line.substring(idx + 1).trim();
+                }
+            }
+        } catch (Exception ignore) {
+            // 读不到就当没有
+        }
+        return null;
+    }
+
     /** 从 git 读取当前 commit（5 分钟缓存），失败不影响接口 */
     private String gitCommit() {
         long now = System.currentTimeMillis();
@@ -128,7 +153,13 @@ public class SystemInfoController {
                         ? "unknown" : line.trim();
             }
         } catch (Exception e) {
-            cachedCommit = "unknown";
+            cachedCommit = null;
+        }
+        // 部署目录没有 .git：读部署脚本写入的 BUILD_INFO（commit=/builtAt=/jarSha256=）
+        // git 在部署机上可能存在但不在仓库里（返回 fatal / 非 0），此时也要回退到 BUILD_INFO
+        if (cachedCommit == null || cachedCommit.isBlank() || "unknown".equals(cachedCommit)) {
+            String fromFile = readBuildInfo("commit");
+            cachedCommit = (fromFile == null || fromFile.isBlank()) ? "unknown" : fromFile.trim();
         }
         commitCacheAt = now;
         return cachedCommit;
