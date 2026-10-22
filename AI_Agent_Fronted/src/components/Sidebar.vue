@@ -105,6 +105,13 @@
         </svg>
         <span>能力控制台</span>
       </button>
+      <button v-if="open" class="sidebar-action-btn" @click="goToImpact">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 17 9 11 13 15 21 7"/>
+          <polyline points="15 7 21 7 21 13"/>
+        </svg>
+        <span>优化成效</span>
+      </button>
       <button v-if="open && isAdmin" class="sidebar-action-btn" @click="goToExperiments">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M9 3h6M10 3v6L5 20a1 1 0 0 0 .9 1h12.2a1 1 0 0 0 .9-1L14 9V3"/>
@@ -190,6 +197,10 @@ function goToAdminFaq() {
 
 function goToConsole() {
   router.push('/console')
+}
+
+function goToImpact() {
+  router.push('/impact')
 }
 
 function goToExperiments() {

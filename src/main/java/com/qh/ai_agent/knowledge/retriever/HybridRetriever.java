@@ -127,11 +127,33 @@ public class HybridRetriever {
         String effectiveDocType = normalizeDocType(docType);
         int effectiveRrfK = Math.max(1, rrfK);
 
-        // 并行执行 BM25 和 PgVector 检索
+        // 并行执行 BM25 和 PgVector 检索。
+        // 两路跑在别的线程上、拿不到 ThreadLocal 的 trace 上下文，
+        // 所以这里各自计时，等回到主线程后再用 recordSpan 统一登记（第 3、4 跳独立埋点）。
+        final long t0 = System.currentTimeMillis();
+        final long[] bm25Timing = new long[]{0, 0};
+        final long[] vectorTiming = new long[]{0, 0};
+
         CompletableFuture<List<RetrievalResult>> bm25Future =
-                CompletableFuture.supplyAsync(() -> bm25Search(query));
+                CompletableFuture.supplyAsync(() -> {
+                    long s = System.currentTimeMillis();
+                    try {
+                        return bm25Search(query);
+                    } finally {
+                        bm25Timing[0] = s - t0;
+                        bm25Timing[1] = System.currentTimeMillis() - s;
+                    }
+                });
         CompletableFuture<List<RetrievalResult>> vectorFuture =
-                CompletableFuture.supplyAsync(() -> vectorSearch(query, effectiveDocType));
+                CompletableFuture.supplyAsync(() -> {
+                    long s = System.currentTimeMillis();
+                    try {
+                        return vectorSearch(query, effectiveDocType);
+                    } finally {
+                        vectorTiming[0] = s - t0;
+                        vectorTiming[1] = System.currentTimeMillis() - s;
+                    }
+                });
 
         List<RetrievalResult> bm25Results;
         List<RetrievalResult> vectorResults;
@@ -155,8 +177,16 @@ public class HybridRetriever {
                 query, bm25Results.size(), vectorResults.size(), effectiveRrfK,
                 similarityThreshold, effectiveDocType == null ? "" : effectiveDocType, topK);
 
+        // 第 3、4 跳：BM25 / 向量独立埋点（真实耗时，并行执行所以有重叠）
+        com.qh.ai_agent.trace.TraceCollector.recordSpan("bm25", bm25Timing[0], bm25Timing[1],
+                java.util.Map.of("candidates", bm25Results.size()));
+        com.qh.ai_agent.trace.TraceCollector.recordSpan("vector", vectorTiming[0], vectorTiming[1],
+                java.util.Map.of("candidates", vectorResults.size(), "threshold", similarityThreshold));
+
         java.util.Map<String, Object> detail = new java.util.LinkedHashMap<>();
         detail.put("bm25Candidates", bm25Results.size());
+        detail.put("bm25Ms", bm25Timing[1]);
+        detail.put("vectorMs", vectorTiming[1]);
         detail.put("vectorCandidates", vectorResults.size());
         detail.put("rrfK", effectiveRrfK);
         detail.put("threshold", similarityThreshold);
@@ -176,7 +206,11 @@ public class HybridRetriever {
             detail.put("path", "vector_only");
             if (rerankEnabled && rerankService != null && vectorOnly.size() > 1) {
                 detail.put("rerankIn", vectorOnly.size());
+                long rrStart = System.currentTimeMillis();
                 List<RetrievalResult> reranked = rerankService.rerank(query, vectorOnly, topK);
+                com.qh.ai_agent.trace.TraceCollector.recordSpan("rerank", rrStart - t0,
+                        System.currentTimeMillis() - rrStart,
+                        java.util.Map.of("in", vectorOnly.size(), "out", reranked.size()));
                 detail.put("rerankOut", reranked.size());
                 LAST_DETAIL.set(detail);
                 return reranked;
@@ -192,7 +226,11 @@ public class HybridRetriever {
             detail.put("path", "bm25_only");
             if (rerankEnabled && rerankService != null && bm25Only.size() > 1) {
                 detail.put("rerankIn", bm25Only.size());
+                long rrStart = System.currentTimeMillis();
                 List<RetrievalResult> reranked = rerankService.rerank(query, bm25Only, topK);
+                com.qh.ai_agent.trace.TraceCollector.recordSpan("rerank", rrStart - t0,
+                        System.currentTimeMillis() - rrStart,
+                        java.util.Map.of("in", bm25Only.size(), "out", reranked.size()));
                 detail.put("rerankOut", reranked.size());
                 LAST_DETAIL.set(detail);
                 return reranked;
@@ -202,8 +240,12 @@ public class HybridRetriever {
         }
 
         // RRF 融合，k 由配置注入并写入日志
+        long rrfStart = System.currentTimeMillis();
         List<RetrievalResult> fused = reciprocalRankFusion(
                 bm25Results, vectorResults, effectiveRrfK);
+        com.qh.ai_agent.trace.TraceCollector.recordSpan("rrf", rrfStart - t0,
+                System.currentTimeMillis() - rrfStart,
+                java.util.Map.of("k", effectiveRrfK, "fused", fused.size()));
         log.debug("[HybridRetriever] RRF 融合完成: bm25Candidates={}, vectorCandidates={}, "
                         + "rrfK={}, fused={}, topK={}",
                 bm25Results.size(), vectorResults.size(), effectiveRrfK, fused.size(), topK);
@@ -219,7 +261,11 @@ public class HybridRetriever {
         if (rerankEnabled && rerankService != null && fused.size() > 1) {
             detail.put("rerankEnabled", true);
             detail.put("rerankIn", fused.size());
+            long rrStart = System.currentTimeMillis();
             List<RetrievalResult> reranked = rerankService.rerank(query, fused, topK);
+            com.qh.ai_agent.trace.TraceCollector.recordSpan("rerank", rrStart - t0,
+                    System.currentTimeMillis() - rrStart,
+                    java.util.Map.of("in", fused.size(), "out", reranked.size()));
             detail.put("rerankOut", reranked.size());
             LAST_DETAIL.set(detail);
             return reranked;

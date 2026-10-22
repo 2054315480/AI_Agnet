@@ -39,6 +39,12 @@ public class SystemInfoController {
     @Value("${cs.cache.enabled:true}")
     private boolean cacheEnabled;
 
+    @Value("${cs.kg.enabled:false}")
+    private boolean kgEnabled;
+
+    @Value("${cs.rerank.enabled:false}")
+    private boolean rerankEnabled;
+
     private volatile String cachedCommit;
     private volatile long commitCacheAt;
 
@@ -73,8 +79,8 @@ public class SystemInfoController {
 
         Map<String, Object> features = new LinkedHashMap<>();
         features.put("traceEnabled", traceEnabled);
-        features.put("kgEnabled", false);
-        features.put("rerankEnabled", false);
+        features.put("kgEnabled", kgEnabled);
+        features.put("rerankEnabled", rerankEnabled);
         features.put("cacheEnabled", cacheEnabled);
         features.put("lockEnabled", true);
         data.put("features", features);

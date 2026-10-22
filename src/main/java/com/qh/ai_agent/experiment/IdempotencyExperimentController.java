@@ -51,6 +51,7 @@ public class IdempotencyExperimentController {
             """;
 
     private final JdbcTemplate jdbcTemplate;
+    private final ExperimentRunStore experimentRunStore;
 
     /**
      * POST /admin/experiments/idempotency
@@ -92,7 +93,8 @@ public class IdempotencyExperimentController {
             result.put("reason", indexCheckError != null
                     ? "查询 pg_indexes 失败，无法确认唯一索引是否存在: " + indexCheckError
                     : "唯一索引 " + INDEX_NAME + " 不存在（pg_indexes 未查到），无法验证并发幂等；本次未写入任何测试数据");
-            return ResponseEntity.ok(result);
+            experimentRunStore.save("idempotency", result);
+        return ResponseEntity.ok(result);
         }
         String zeroVector = zeroVectorLiteral();
         List<String> testKbIds = new ArrayList<>();
@@ -178,6 +180,7 @@ public class IdempotencyExperimentController {
         if (!pass) {
             result.put("reason", String.join("；", reasons));
         }
+            experimentRunStore.save("idempotency", result);
         return ResponseEntity.ok(result);
     }
     /** 执行一轮并发写入：concurrency 个线程同时 INSERT 同一个 kb_id。 */

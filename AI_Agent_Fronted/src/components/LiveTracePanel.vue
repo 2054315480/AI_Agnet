@@ -118,7 +118,7 @@
               <TraceWaterfall
                 :trace="traceDetail"
                 :loading="traceLoading"
-                :error="traceError"
+                :error="traceError || false"
                 @retry="loadTrace(selectedTraceId)"
               />
             </div>

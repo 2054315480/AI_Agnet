@@ -70,6 +70,7 @@ public class RetrievalBenchController {
 
     private final Bm25Retriever bm25Retriever;
     private final JdbcTemplate jdbcTemplate;
+    private final ExperimentRunStore experimentRunStore;
 
     @Value("${cs.vector.similarity-threshold:0.5}")
     private double similarityThreshold;
@@ -162,6 +163,7 @@ public class RetrievalBenchController {
         result.put("warmupRuns", 1);
         result.put("hybridNote", "HybridRetriever.search 已并行执行两路，但其向量路会调 embedding；本实验拆出底层 BM25 与 pgvector SQL 单独计时");
         result.put("elapsedMs", System.currentTimeMillis() - startedAt);
+            experimentRunStore.save("retrieval-bench", result);
         return ResponseEntity.ok(result);
     }
     /** 串行组：先 BM25，再向量 SQL，两段顺序执行。 */

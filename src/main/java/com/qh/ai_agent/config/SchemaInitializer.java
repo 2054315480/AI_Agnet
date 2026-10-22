@@ -48,6 +48,11 @@ public class SchemaInitializer {
             // 9 跳链路展示需要的两列：检索分阶段明细 + 落库行 id
             "ALTER TABLE agent_trace ADD COLUMN IF NOT EXISTS retrieval_detail JSONB",
             "ALTER TABLE agent_trace ADD COLUMN IF NOT EXISTS db_ref JSONB",
+            // 实验实测结果落库：优化成效页读"最近一次真实实验结果"，而不是写死数字
+            "CREATE TABLE IF NOT EXISTS experiment_run ("
+                    + "id BIGSERIAL PRIMARY KEY, type VARCHAR(64) NOT NULL, "
+                    + "payload JSONB NOT NULL, created_at TIMESTAMPTZ DEFAULT now())",
+            "CREATE INDEX IF NOT EXISTS idx_experiment_run_type ON experiment_run (type, created_at DESC)",
             // ---- 知识图谱 ----
             "CREATE TABLE IF NOT EXISTS kg_entity ("
                     + "id BIGSERIAL PRIMARY KEY,"

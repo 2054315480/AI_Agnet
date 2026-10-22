@@ -33,6 +33,18 @@ const routes = [
     meta: { title: '实验中心 · 客服工作台', requiresAuth: true, requiresAdmin: true }
   },
   {
+    path: '/impact',
+    name: 'Impact',
+    component: () => import('../components/ImpactPage.vue'),
+    meta: { title: '优化成效 · 客服工作台', requiresAuth: true }
+  },
+  {
+    path: '/trace/:traceId',
+    name: 'TraceDetail',
+    component: () => import('../components/TracePage.vue'),
+    meta: { title: '链路详情 · 客服工作台', requiresAuth: true, requiresAdmin: true }
+  },
+  {
     path: '/analytics',
     name: 'Analytics',
     component: () => import('../components/AnalyticsView.vue'),

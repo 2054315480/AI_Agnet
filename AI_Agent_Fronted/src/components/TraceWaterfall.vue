@@ -2,7 +2,7 @@
   <StateBlock
     :loading="loading"
     loading-text="正在读取链路瀑布..."
-    :error="error"
+    :error="error || false"
     :empty="!loading && !error && !model"
     empty-text="暂无链路数据"
     @retry="$emit('retry')"

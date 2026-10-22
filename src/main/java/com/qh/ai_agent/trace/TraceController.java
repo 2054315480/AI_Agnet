@@ -94,52 +94,60 @@ public class TraceController {
 
         hops.add(hop(1, "用户提问", "session=" + trace.get("session_id"),
                 intentMs, str(trace.get("user_query")),
-                mapOf("sessionId", trace.get("session_id"), "query", trace.get("user_query"))));
+                mapOf("sessionId", trace.get("session_id"), "query", trace.get("user_query")), 0));
 
         hops.add(hop(2, "查询改写",
                 sameOrChanged(trace.get("user_query"), trace.get("rewritten")),
                 0, str(trace.get("rewritten")),
-                mapOf("original", trace.get("user_query"), "rewritten", trace.get("rewritten"))));
+                mapOf("original", trace.get("user_query"), "rewritten", trace.get("rewritten")), 0));
 
         hops.add(hop(3, "BM25 检索", "候选 " + num(detail.get("bm25Candidates")) + " 条",
-                0, "", mapOf("candidates", detail.get("bm25Candidates"), "path", detail.get("path"))));
+                spanMs(spans, "bm25"), "", mapOf("candidates", detail.get("bm25Candidates"),
+                        "path", detail.get("path"), "ms", detail.get("bm25Ms")),
+                spanStart(spans, "bm25")));
 
         hops.add(hop(4, "向量检索",
                 "候选 " + num(detail.get("vectorCandidates")) + " 条，阈值 " + num(detail.get("threshold")),
-                0, "", mapOf("candidates", detail.get("vectorCandidates"), "threshold", detail.get("threshold"))));
+                spanMs(spans, "vector"), "", mapOf("candidates", detail.get("vectorCandidates"),
+                        "threshold", detail.get("threshold"), "ms", detail.get("vectorMs")),
+                spanStart(spans, "vector")));
 
         hops.add(hop(5, "RRF 融合",
                 "k=" + num(detail.get("rrfK")) + "，融合 " + num(detail.get("fused")) + " 条",
-                retrieveMs, "", mapOf("rrfK", detail.get("rrfK"), "fused", detail.get("fused"),
-                        "kgEnabled", detail.get("kgEnabled"), "retrieveSpanMs", retrieveMs)));
+                spanMs(spans, "rrf"), "", mapOf("rrfK", detail.get("rrfK"), "fused", detail.get("fused"),
+                        "kgEnabled", detail.get("kgEnabled"), "retrieveSpanMs", retrieveMs),
+                spanStart(spans, "rrf")));
 
         hops.add(hop(6, "精排",
                 num(detail.get("rerankIn")) + " → " + num(detail.get("rerankOut")),
-                0, "", mapOf("in", detail.get("rerankIn"), "out", detail.get("rerankOut"))));
+                spanMs(spans, "rerank"), "", mapOf("in", detail.get("rerankIn"),
+                        "out", detail.get("rerankOut")),
+                spanStart(spans, "rerank")));
 
         hops.add(hop(7, "LLM 调用",
                 "total " + num(trace.get("total_tokens")) + " tokens",
                 llmMs, "", mapOf("model", "qwen-plus", "totalTokens", trace.get("total_tokens"),
-                        "degraded", trace.get("degraded_reason"))));
+                        "degraded", trace.get("degraded_reason")), spanStart(spans, "llm")));
 
         hops.add(hop(8, "落库",
                 dbRef.isEmpty() ? "未记录" : "messages id=" + dbRef.get("assistantMessageId"),
-                0, "", dbRef));
+                0, "", dbRef, 0));
 
         hops.add(hop(9, "响应",
                 str(trace.get("status")) + "，" + spans.size() + " 个 span",
                 0, "", mapOf("status", trace.get("status"), "spanCount", spans.size(),
-                        "totalMs", trace.get("total_ms"))));
+                        "totalMs", trace.get("total_ms")), 0));
         return hops;
     }
 
     private Map<String, Object> hop(int seq, String name, String detail, long durationMs,
-                                    String content, Map<String, Object> data) {
+                                    String content, Map<String, Object> data, long startMs) {
         Map<String, Object> h = new LinkedHashMap<>();
         h.put("seq", seq);
         h.put("name", name);
         h.put("detail", detail);
         h.put("durationMs", durationMs);
+        h.put("startMs", startMs);
         h.put("content", content);
         h.put("data", data);
         h.put("status", "ok");
@@ -169,6 +177,18 @@ public class TraceController {
             }
         }
         return Map.of();
+    }
+
+    private static long spanStart(List<Map<String, Object>> spans, String name) {
+        for (Map<String, Object> sp : spans) {
+            if (name.equals(String.valueOf(sp.get("span_name")))) {
+                Object s = sp.get("start_ms");
+                if (s instanceof Number n) {
+                    return n.longValue();
+                }
+            }
+        }
+        return 0;
     }
 
     private static long spanMs(List<Map<String, Object>> spans, String name) {

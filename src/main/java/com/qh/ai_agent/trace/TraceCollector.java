@@ -68,6 +68,16 @@ public final class TraceCollector {
         return ctx;
     }
 
+    /** 按显式计时补一条 span（并行子任务用） */
+    public static void recordSpan(String name, long startOffsetMs, long durationMs,
+                                  Map<String, Object> attributes) {
+        TraceContext ctx = CURRENT.get();
+        if (ctx == null) {
+            return;
+        }
+        ctx.addSpan(name, startOffsetMs, durationMs, attributes);
+    }
+
     public static TraceContext current() {
         return CURRENT.get();
     }

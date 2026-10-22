@@ -72,6 +72,23 @@ public class TraceContext {
         this.degradedReason = reason;
     }
 
+    /**
+     * 直接补一条 span（用于在并行子任务里计时、回到主线程后统一登记）。
+     * 并行检索的 BM25 / 向量无法用 ThreadLocal begin/end，只能各自计时后回填。
+     */
+    public synchronized void addSpan(String name, long startOffsetMs, long durationMs,
+                                     Map<String, Object> attributes) {
+        Span span = new Span();
+        span.setName(name);
+        span.setStartOffsetMs(Math.max(0, startOffsetMs));
+        span.setDurationMs(Math.max(0, durationMs));
+        span.setStatus("ok");
+        if (attributes != null && !attributes.isEmpty()) {
+            span.setAttributes(new LinkedHashMap<>(attributes));
+        }
+        spans.add(span);
+    }
+
     /** 供异步落库线程直接写入指标（不依赖 ThreadLocal 绑定） */
     public void putMetric(String key, Object value) {
         if (key != null) {

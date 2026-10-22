@@ -25,7 +25,8 @@ import { computed } from 'vue'
 
 const props = defineProps({
   loading: { type: Boolean, default: false },
-  error: { type: [Boolean, String, Object], default: false },
+  // 注意：Boolean 必须放在 String 之后，否则空字符串会被 Vue 转成 true（页面永远显示"加载失败"）
+  error: { type: [String, Boolean, Object], default: false },
   empty: { type: Boolean, default: false },
   emptyText: { type: String, default: '暂无数据' },
   loadingText: { type: String, default: '正在加载...' },
