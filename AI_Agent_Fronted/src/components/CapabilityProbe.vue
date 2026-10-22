@@ -20,10 +20,10 @@
 
     <div v-if="summary" class="probe-summary">{{ summary }}</div>
 
-    <div v-if="raw" class="raw-box">
-      <div class="raw-title">原始响应（{{ currentProbe.method }} {{ currentProbe.path }}）</div>
+    <details v-if="raw" class="raw-box">
+      <summary class="raw-title">原始响应（{{ currentProbe.method }} {{ currentProbe.path }}）· 默认收起</summary>
       <pre class="raw-json">{{ raw }}</pre>
-    </div>
+    </details>
 
     <div class="probe-hint">
       <div class="ph-title">这些接口证明什么</div>
@@ -57,7 +57,12 @@ const probes = [
     summary: d => Array.isArray(d) ? `${d.length} 次评测记录` : '' },
   { key: 'fault', label: '故障注入状态', method: 'GET', path: '/api/admin/experiments/fault/status',
     proves: '注入故障后这里会显示剩余秒数，到点自动清空（不会忘记关）',
-    summary: d => `当前故障: ${JSON.stringify(d.activeFaults)}` },
+    summary: d => {
+      const entries = Object.entries(d.activeFaults || {})
+      return entries.length
+        ? '当前故障: ' + entries.map(([k, v]) => `${k} 剩余 ${v}s`).join('、')
+        : '当前无活动故障'
+    } },
   { key: 'traces', label: '链路追踪记录', method: 'GET', path: '/api/admin/trace/recent?limit=3',
     proves: '每次对话的 span 落库，可看到真实耗时分解',
     summary: d => Array.isArray(d) ? `${d.length} 条 trace` : '' }
@@ -105,7 +110,9 @@ async function run() {
 .status.fail { background: var(--danger-bg); color: var(--danger); }
 .probe-summary { margin: 10px 0 6px; padding: 8px 12px; border-left: 2px solid var(--accent); background: var(--bg-step); font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary); }
 .raw-box { margin-top: 10px; border: 1px solid var(--rule); border-radius: var(--radius-sm); overflow: hidden; }
-.raw-title { padding: 7px 10px; font-size: 0.6875rem; color: var(--text-tertiary); background: var(--bg-step); border-bottom: 1px solid var(--rule); }
+.raw-title { padding: 7px 10px; font-size: 0.6875rem; color: var(--text-tertiary); background: var(--bg-step); border-bottom: 1px solid var(--rule); cursor: pointer; user-select: none; list-style: none; }
+.raw-title::-webkit-details-marker { display: none; }
+.raw-title:hover { color: var(--accent); }
 .raw-json { margin: 0; padding: 10px; max-height: 300px; overflow: auto; font-family: var(--font-mono); font-size: 0.6875rem; line-height: 1.6; color: var(--text-secondary); }
 .probe-hint { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--rule); }
 .ph-title { font-size: 0.625rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 6px; }

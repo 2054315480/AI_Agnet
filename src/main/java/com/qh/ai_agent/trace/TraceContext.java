@@ -72,6 +72,13 @@ public class TraceContext {
         this.degradedReason = reason;
     }
 
+    /** 供异步落库线程直接写入指标（不依赖 ThreadLocal 绑定） */
+    public void putMetric(String key, Object value) {
+        if (key != null) {
+            metrics.put(key, value);
+        }
+    }
+
     public long totalMs() {
         return System.currentTimeMillis() - startMs;
     }

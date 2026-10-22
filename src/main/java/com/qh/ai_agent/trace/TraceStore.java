@@ -34,13 +34,32 @@ public class TraceStore {
             if (totalTokens == null && degraded == null && hasLlmSpan(ctx)) {
                 degraded = "token_usage_unavailable";
             }
+            String retrievalDetailJson = null;
+            Object detail = ctx.getMetrics().get("retrievalDetail");
+            if (detail != null) {
+                try {
+                    retrievalDetailJson = objectMapper.writeValueAsString(detail);
+                } catch (Exception ignore) {
+                    // 明细序列化失败不影响 trace 落库
+                }
+            }
+            String dbRefJson = null;
+            Object dbRef = ctx.getMetrics().get("dbRef");
+            if (dbRef != null) {
+                try {
+                    dbRefJson = objectMapper.writeValueAsString(dbRef);
+                } catch (Exception ignore) {
+                }
+            }
             jdbcTemplate.update(
                 "INSERT INTO agent_trace (trace_id, session_id, user_query, rewritten, intent, status, " +
-                "total_ms, total_tokens, degraded_reason) VALUES (?,?,?,?,?,?,?,?,?) " +
-                "ON CONFLICT (trace_id) DO NOTHING",
+                "total_ms, total_tokens, degraded_reason, retrieval_detail, db_ref) " +
+                "VALUES (?,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb) " +
+                "ON CONFLICT (trace_id) DO UPDATE SET retrieval_detail = EXCLUDED.retrieval_detail, " +
+                "db_ref = EXCLUDED.db_ref",
                 ctx.getTraceId(), ctx.getSessionId(), truncate(ctx.getUserQuery(), 2000),
                 truncate(ctx.getRewrittenQuery(), 2000), ctx.getIntent(), ctx.getStatus(),
-                (int) ctx.totalMs(), totalTokens, degraded);
+                (int) ctx.totalMs(), totalTokens, degraded, retrievalDetailJson, dbRefJson);
 
             for (TraceContext.Span span : ctx.getSpans()) {
                 jdbcTemplate.update(

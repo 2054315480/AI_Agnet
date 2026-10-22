@@ -45,6 +45,9 @@ public class SchemaInitializer {
                     + "attributes JSONB,"
                     + "created_at TIMESTAMPTZ DEFAULT now())",
             "CREATE INDEX IF NOT EXISTS idx_trace_span_trace ON trace_span (trace_id, start_ms)",
+            // 9 跳链路展示需要的两列：检索分阶段明细 + 落库行 id
+            "ALTER TABLE agent_trace ADD COLUMN IF NOT EXISTS retrieval_detail JSONB",
+            "ALTER TABLE agent_trace ADD COLUMN IF NOT EXISTS db_ref JSONB",
             // ---- 知识图谱 ----
             "CREATE TABLE IF NOT EXISTS kg_entity ("
                     + "id BIGSERIAL PRIMARY KEY,"

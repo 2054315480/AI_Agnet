@@ -67,6 +67,7 @@ public class CustomerServiceController {
     private final com.qh.ai_agent.resilience.TokenBucketRateLimiter rateLimiter;
     private final KbParserFactory kbParserFactory;
     private final KnowledgeSearchService knowledgeSearchService;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     /**
      * 客服对话（SSE 流式）
@@ -366,6 +367,34 @@ public class CustomerServiceController {
         return title;
     }
 
+    /** 把落库行 id 写回 agent_trace.db_ref，供链路详情展示与 SQL 反查 */
+    private void recordDbRef(CustomerServiceAgent agent, String sessionId, Long assistantMessageId) {
+        try {
+            if (agent == null || agent.getTraceContext() == null) {
+                return;
+            }
+            String traceId = agent.getTraceContext().getTraceId();
+            if (traceId == null || traceId.isBlank()) {
+                return;
+            }
+            java.util.Map<String, Object> ref = new java.util.LinkedHashMap<>();
+            ref.put("conversationId", sessionId);
+            ref.put("assistantMessageId", assistantMessageId);
+            try {
+                Long analyticsId = jdbcTemplate.queryForObject(
+                        "SELECT id FROM dialog_analytics WHERE conversation_id = ?", Long.class, sessionId);
+                ref.put("analyticsId", analyticsId);
+            } catch (Exception ignore) {
+                // analytics 行可能尚未生成
+            }
+            // 直接写进 trace 上下文：TraceStore.save 会随 trace 一起落库（此时 trace 行可能还没插入，
+            // 用 UPDATE 会出现 0 行命中的竞态）
+            agent.getTraceContext().putMetric("dbRef", ref);
+        } catch (Exception e) {
+            log.warn("[CS-Controller] 回填 db_ref 失败: {}", e.getMessage());
+        }
+    }
+
     /** 第一段：请求进入时立即写用户消息，避免中途断开导致整轮丢失 */
     private void persistUserTurn(String sessionId, String userMessage, Long userId) {
         try {
@@ -413,6 +442,7 @@ public class CustomerServiceController {
 
             // 从 Agent 消息列表获取最后的 AI 回复
             String assistantReply = getLastAssistantMessage(agent);
+            Long assistantMessageId = null;
             if (assistantReply != null) {
                 // 出处落库：供分析页/会话抽屉在重新加载后仍能看到引用来源
                 java.util.Map<String, Object> sources = null;
@@ -420,9 +450,12 @@ public class CustomerServiceController {
                 if (sourceList != null && !sourceList.isEmpty()) {
                     sources = java.util.Map.of("items", sourceList);
                 }
-                conversationService.addMessage(sessionId, "assistant", assistantReply,
+                assistantMessageId = conversationService.addMessage(sessionId, "assistant", assistantReply,
                         intent, slots, confidence, isHandoff, isClarification, sources);
             }
+
+            // 回填 trace 的落库行 id（9 跳链路第 8 跳可反查）
+            recordDbRef(agent, sessionId, assistantMessageId);
 
             // 直接 SQL upsert 聚合分析（绕过 ORM，确保可靠写入）
             dialogAnalyticsMapper.upsertAnalyticsDirect(sessionId);

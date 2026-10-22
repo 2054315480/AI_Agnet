@@ -12,7 +12,7 @@
 
     <section v-if="tab === 'caps'" class="cn-body">
       <!-- 加载骨架：接口未返回时不再整页空白 -->
-      <div v-if="capsLoading" class="caps-skeleton" aria-label="能力矩阵加载中">
+      <div v-if="capsLoading" class="caps-skeleton" aria-label="能力地图加载中">
         <div class="caps-skeleton-summary"></div>
         <div class="caps-skeleton-grid">
           <div v-for="n in 6" :key="n" class="caps-skeleton-card">
@@ -34,7 +34,7 @@
       </StateBlock>
 
       <StateBlock
-        v-else-if="!caps || !(caps.items || []).length"
+        v-else-if="!caps || !capItems.length"
         empty
         empty-text="暂无能力矩阵数据"
       >
@@ -44,27 +44,69 @@
       </StateBlock>
 
       <template v-else>
-        <div class="caps-summary">
-          已实现 <b>{{ caps.implemented }}</b> / {{ caps.total }} 项能力
-          <span class="muted">（数据实时来自后端，刷新即更新）</span>
-        </div>
-        <div class="caps-grid">
-          <article v-for="c in caps.items" :key="c.name" class="cap-card" :class="c.status">
-            <div class="cap-top">
-              <span class="cap-cat">{{ c.category }}</span>
-              <span class="cap-status" :class="c.status">
-                {{ c.status === 'implemented' ? '已实现' : (c.status === 'partial' ? '部分' : '计划中') }}
-              </span>
+        <!-- 顶部能力概览：大数字 + ECharts 环形进度 -->
+        <section class="caps-overview">
+          <div class="caps-overview-copy">
+            <span class="overview-kicker">能力概览</span>
+            <div class="overview-number">
+              <b>{{ implementedCount }}</b><span>/ {{ totalCount }}</span>
             </div>
-            <h3 class="cap-name">{{ c.name }}</h3>
-            <p class="cap-evidence">{{ c.evidence }}</p>
-            <div class="cap-metrics" v-if="c.metrics && Object.keys(c.metrics).length">
-              <span v-for="(v, k) in c.metrics" :key="k" class="cap-metric">
-                <span class="cm-k">{{ k }}</span>
-                <span class="cm-v mono">{{ v === true ? '是' : (v === false ? '否' : v) }}</span>
-              </span>
+            <p class="overview-note">
+              已实现能力占比 <strong>{{ achievementRate }}%</strong>
+              <span class="muted">· 数据实时来自后端</span>
+            </p>
+            <div class="overview-legend">
+              <span><i class="legend-dot done"></i>已实现 {{ implementedCount }}</span>
+              <span><i class="legend-dot partial"></i>部分实现 {{ partialCount }}</span>
+              <span><i class="legend-dot planned"></i>计划中 {{ plannedCount }}</span>
             </div>
-          </article>
+          </div>
+          <div class="caps-ring">
+            <BaseChart :option="ringOption" height="154px" />
+          </div>
+        </section>
+
+        <!-- 主体：按 category 分组的能力卡片网格 -->
+        <div class="cap-groups">
+          <section v-for="group in capGroups" :key="group.category" class="cap-group">
+            <header class="cap-group-head">
+              <div>
+                <h2>{{ group.category }}</h2>
+                <span class="cap-group-sub">{{ group.implemented }} / {{ group.items.length }} 项已实现</span>
+              </div>
+              <span class="cap-group-line"></span>
+            </header>
+            <div class="cap-grid">
+              <button
+                v-for="c in group.items"
+                :key="c.name"
+                type="button"
+                class="cap-card"
+                :class="statusClass(c.status)"
+                @click="openCap(c)"
+              >
+                <div class="cap-top">
+                  <span class="cap-status" :class="statusClass(c.status)">{{ statusLabel(c.status) }}</span>
+                  <span class="cap-open-hint">详情 ↗</span>
+                </div>
+                <h3 class="cap-name">{{ c.name }}</h3>
+                <p class="cap-evidence">{{ c.evidence || '暂无证据说明' }}</p>
+                <div v-if="metricEntries(c.metrics).length" class="cap-chips">
+                  <span
+                    v-for="[k, v] in metricEntries(c.metrics).slice(0, 3)"
+                    :key="k"
+                    class="cap-chip"
+                  >
+                    <span class="chip-k">{{ metricLabel(k) }}</span>
+                    <b class="chip-v mono">{{ metricValue(v) }}</b>
+                  </span>
+                  <span v-if="metricEntries(c.metrics).length > 3" class="cap-chip more">
+                    +{{ metricEntries(c.metrics).length - 3 }}
+                  </span>
+                </div>
+              </button>
+            </div>
+          </section>
         </div>
       </template>
     </section>
@@ -170,12 +212,51 @@
         </div>
       </template>
     </section>
+    <!-- 能力详情抽屉：点击卡片展开全部 evidence / metrics -->
+    <Teleport to="body">
+      <Transition name="cap-drawer">
+        <div v-if="selectedCap" class="cap-overlay" @click.self="closeCap">
+          <aside class="cap-drawer" role="dialog" aria-modal="true" aria-label="能力详情">
+            <header class="drawer-head">
+              <div>
+                <span class="drawer-kicker">CAPABILITY DETAIL</span>
+                <span class="drawer-cat">{{ selectedCap.category || '未分类' }}</span>
+              </div>
+              <button class="drawer-close" type="button" aria-label="关闭" @click="closeCap">×</button>
+            </header>
+            <div class="drawer-body">
+              <div class="drawer-hero">
+                <span class="cap-status" :class="statusClass(selectedCap.status)">{{ statusLabel(selectedCap.status) }}</span>
+                <h2>{{ selectedCap.name }}</h2>
+              </div>
+
+              <section class="drawer-section">
+                <h3>证据</h3>
+                <p class="drawer-evidence">{{ selectedCap.evidence || '暂无证据说明' }}</p>
+              </section>
+
+              <section class="drawer-section">
+                <h3>全部指标 <span class="drawer-count">{{ metricEntries(selectedCap.metrics).length }}</span></h3>
+                <div v-if="metricEntries(selectedCap.metrics).length" class="drawer-metrics">
+                  <div v-for="[k, v] in metricEntries(selectedCap.metrics)" :key="k" class="drawer-metric">
+                    <span class="dm-k">{{ metricLabel(k) }}</span>
+                    <span class="dm-v mono">{{ metricValue(v) }}</span>
+                  </div>
+                </div>
+                <p v-else class="drawer-empty">暂无指标</p>
+              </section>
+            </div>
+          </aside>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { get, post, clearToken } from '../api/http.js'
+import BaseChart from './charts/BaseChart.vue'
 import StateBlock from './StateBlock.vue'
 
 const tab = ref('caps')
@@ -193,6 +274,126 @@ const evalRunning = ref(false)
 const evalError = ref('')
 const evalSize = ref(30)
 const evalMode = ref('paraphrase')
+const selectedCap = ref(null)
+
+const capItems = computed(() => Array.isArray(caps.value?.items) ? caps.value.items : [])
+const implementedCount = computed(() => {
+  const declared = Number(caps.value?.implemented)
+  if (Number.isFinite(declared)) return declared
+  return capItems.value.filter(c => String(c.status || '').toLowerCase() === 'implemented').length
+})
+const totalCount = computed(() => {
+  const declared = Number(caps.value?.total)
+  return Number.isFinite(declared) && declared > 0 ? declared : capItems.value.length
+})
+const partialCount = computed(() => capItems.value.filter(c => String(c.status || '').toLowerCase() === 'partial').length)
+const plannedCount = computed(() => Math.max(totalCount.value - implementedCount.value - partialCount.value, 0))
+const achievementRate = computed(() => {
+  if (!totalCount.value) return 0
+  return Math.round((implementedCount.value / totalCount.value) * 100)
+})
+const capGroups = computed(() => {
+  const map = new Map()
+  for (const item of capItems.value) {
+    const category = item.category || '未分类'
+    if (!map.has(category)) map.set(category, [])
+    map.get(category).push(item)
+  }
+  return Array.from(map.entries()).map(([category, items]) => ({
+    category,
+    items,
+    implemented: items.filter(c => String(c.status || '').toLowerCase() === 'implemented').length
+  }))
+})
+const ringOption = computed(() => {
+  const done = Math.max(implementedCount.value, 0)
+  const rest = Math.max(totalCount.value - done, 0)
+  return {
+    animationDuration: 700,
+    title: {
+      text: achievementRate.value + '%',
+      subtext: '实现率',
+      left: 'center',
+      top: '35%',
+      textStyle: {
+        color: 'var(--text-primary)',
+        fontFamily: 'var(--font-serif)',
+        fontSize: 25,
+        fontWeight: 500
+      },
+      subtextStyle: {
+        color: 'var(--text-tertiary)',
+        fontFamily: 'var(--font-sans)',
+        fontSize: 10
+      }
+    },
+    tooltip: { trigger: 'item', formatter: '{b}: {c}' },
+    series: [{
+      type: 'pie',
+      radius: ['69%', '87%'],
+      center: ['50%', '50%'],
+      avoidLabelOverlap: false,
+      silent: false,
+      label: { show: false },
+      labelLine: { show: false },
+      itemStyle: { borderWidth: 0 },
+      data: [
+        { value: done, name: '已实现', itemStyle: { color: 'token:accent' } },
+        { value: rest, name: '待实现', itemStyle: { color: 'var(--bg-step)' } }
+      ]
+    }]
+  }
+})
+
+function statusClass(status) {
+  const s = String(status || '').toLowerCase()
+  if (s === 'implemented' || s === 'done' || s === 'ok') return 'implemented'
+  if (s === 'partial' || s === 'in_progress' || s === 'warning') return 'partial'
+  return 'planned'
+}
+
+function statusLabel(status) {
+  const s = String(status || '').toLowerCase()
+  if (s === 'implemented' || s === 'done' || s === 'ok') return '已实现'
+  if (s === 'partial' || s === 'in_progress' || s === 'warning') return '部分实现'
+  return '计划中'
+}
+
+function metricEntries(metrics) {
+  if (!metrics || typeof metrics !== 'object' || Array.isArray(metrics)) return []
+  return Object.entries(metrics)
+}
+
+function metricLabel(key) {
+  return String(key || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+}
+
+function metricValue(value) {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'boolean') return value ? '是' : '否'
+  if (Array.isArray(value)) return value.length ? value.join(', ') : '空'
+  if (typeof value === 'object') {
+    const entries = Object.entries(value)
+    if (!entries.length) return '空对象'
+    return entries.map(([k, v]) => metricLabel(k) + ': ' + metricValue(v)).join(' · ')
+  }
+  return String(value)
+}
+
+function openCap(cap) {
+  selectedCap.value = cap
+}
+
+function closeCap() {
+  selectedCap.value = null
+}
+
+function handleDrawerKey(event) {
+  if (event.key === 'Escape') closeCap()
+}
 
 function errorText(e, fallback = '数据加载失败，请稍后重试') {
   if (e && e.status === 403) return '无权限（需要管理员）'
@@ -273,6 +474,11 @@ function fmt(v) {
 onMounted(() => {
   loadCaps()
   loadHistory()
+  window.addEventListener('keydown', handleDrawerKey)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleDrawerKey)
 })
 </script>
 
@@ -349,4 +555,223 @@ h1 { font-family: var(--font-serif); font-size: 1.375rem; }
 .state-actions { display: flex; justify-content: center; gap: 8px; }
 .state-action-btn { padding: 5px 14px; border: 1px solid var(--border-secondary); border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--bg-hover); font-size: .75rem; }
 .state-action-btn:hover { color: var(--accent); border-color: var(--accent-border); }
+
+/* ===== 能力地图 ===== */
+.caps-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  align-items: center;
+  gap: 28px;
+  margin-bottom: 26px;
+  padding: 20px 24px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--bg-sidebar), var(--bg-step));
+}
+.caps-overview-copy { min-width: 0; }
+.overview-kicker {
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-tertiary);
+}
+.overview-number {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 6px 0 4px;
+  font-family: var(--font-serif);
+}
+.overview-number b {
+  font-size: clamp(3rem, 6vw, 5rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.overview-number span {
+  font-size: 1.375rem;
+  color: var(--text-tertiary);
+}
+.overview-note {
+  margin: 0 0 14px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.overview-note strong { color: var(--accent); font-weight: 600; }
+.overview-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.6875rem; color: var(--text-tertiary); }
+.overview-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.legend-dot.done { background: var(--accent); }
+.legend-dot.partial { background: var(--accent-love); }
+.legend-dot.planned { background: var(--text-tertiary); opacity: 0.45; }
+.caps-ring { min-width: 0; }
+
+.cap-group { margin-bottom: 24px; }
+.cap-group-head { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+.cap-group-head h2 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.cap-group-sub { display: block; margin-top: 2px; font-size: 0.625rem; color: var(--text-tertiary); }
+.cap-group-line { flex: 1; height: 1px; background: var(--rule); }
+
+.cap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.cap-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 168px;
+  padding: 14px 15px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--bg-sidebar);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
+}
+.cap-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-border);
+  background: var(--bg-hover);
+}
+.cap-card.planned { opacity: 0.68; }
+.cap-card.planned:hover { opacity: 1; }
+.cap-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.cap-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.625rem;
+  letter-spacing: 0.02em;
+}
+.cap-status.implemented { background: var(--success-bg); color: var(--success); }
+.cap-status.partial { background: var(--accent-love-bg); color: var(--accent-love); }
+.cap-status.planned { background: var(--bg-step); color: var(--text-tertiary); }
+.cap-open-hint { font-size: 0.625rem; color: var(--text-tertiary); opacity: 0; transition: opacity var(--duration-fast) var(--ease-out); }
+.cap-card:hover .cap-open-hint { opacity: 1; }
+.cap-name {
+  margin: 0 0 6px;
+  font-family: var(--font-serif);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.cap-evidence {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.9em;
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-tertiary);
+}
+.cap-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+.cap-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-xs);
+  background: var(--bg-step);
+  font-size: 0.625rem;
+}
+.chip-k { color: var(--text-tertiary); white-space: nowrap; }
+.chip-v { color: var(--accent); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cap-chip.more { color: var(--text-tertiary); }
+
+.cap-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(2px);
+}
+.cap-drawer {
+  width: min(460px, 92vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--rule);
+  box-shadow: var(--shadow-lg);
+}
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--rule);
+}
+.drawer-kicker { display: block; font-size: 0.5625rem; letter-spacing: 0.18em; color: var(--text-tertiary); }
+.drawer-cat { display: block; margin-top: 4px; font-size: 0.75rem; color: var(--text-secondary); }
+.drawer-close {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 1.125rem;
+  line-height: 1;
+}
+.drawer-close:hover { color: var(--accent); border-color: var(--accent-border); }
+.drawer-body { flex: 1; overflow-y: auto; padding: 22px; }
+.drawer-hero { padding-bottom: 18px; border-bottom: 1px solid var(--rule); }
+.drawer-hero h2 { margin: 10px 0 0; font-family: var(--font-serif); font-size: 1.5rem; font-weight: 500; }
+.drawer-section { margin-top: 22px; }
+.drawer-section h3 {
+  margin: 0 0 10px;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+.drawer-count { margin-left: 6px; color: var(--accent); }
+.drawer-evidence {
+  margin: 0;
+  padding: 12px 14px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--bg-step);
+  font-size: 0.8125rem;
+  line-height: 1.8;
+  color: var(--text-secondary);
+}
+.drawer-metrics { border: 1px solid var(--rule); border-radius: var(--radius-sm); overflow: hidden; }
+.drawer-metric {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 9px 12px;
+  font-size: 0.75rem;
+}
+.drawer-metric + .drawer-metric { border-top: 1px solid var(--rule); }
+.dm-k { color: var(--text-tertiary); word-break: break-word; }
+.dm-v { color: var(--accent); text-align: right; word-break: break-word; }
+.drawer-empty { font-size: 0.75rem; color: var(--text-tertiary); }
+.cap-drawer-enter-active, .cap-drawer-leave-active { transition: opacity 200ms var(--ease-out); }
+.cap-drawer-enter-active .cap-drawer, .cap-drawer-leave-active .cap-drawer { transition: transform 240ms var(--ease-out); }
+.cap-drawer-enter-from, .cap-drawer-leave-to { opacity: 0; }
+.cap-drawer-enter-from .cap-drawer, .cap-drawer-leave-to .cap-drawer { transform: translateX(100%); }
+
+@media (max-width: 720px) {
+  .caps-overview { grid-template-columns: 1fr; gap: 8px; padding: 16px 18px; }
+  .caps-ring { display: none; }
+  .cap-grid { grid-template-columns: 1fr; }
+}
 </style>

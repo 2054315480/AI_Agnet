@@ -115,6 +115,14 @@ public class CustomerServiceTools {
             sb.append("]");
         }
 
+        try {
+            java.util.Map<String, Object> detail = searchResult.retrievalDetail();
+            if (detail != null && !detail.isEmpty()) {
+                sb.append(",\"retrievalDetail\":").append(
+                        new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(detail));
+            }
+        } catch (Exception ignore) {
+        }
         sb.append(",\"query\":").append(escapeJson(originalQuery));
         sb.append(",\"rewrittenQuery\":").append(escapeJson(rewrittenQuery));
         sb.append(",\"matchedSynonyms\":[");

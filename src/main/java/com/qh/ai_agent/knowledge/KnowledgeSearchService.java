@@ -567,7 +567,9 @@ public class KnowledgeSearchService {
 
                     suggested,
 
-                    List.of()
+                    List.of(),
+
+                    java.util.Map.of("path", "faq_direct", "bm25Candidates", 1, "vectorCandidates", 0)
 
             );
 
@@ -583,9 +585,13 @@ public class KnowledgeSearchService {
 
 
 
+        java.util.Map<String, Object> retrievalDetail = java.util.Map.of();
+
         if (hybridRetriever != null) {
 
             hybridResults = hybridRetriever.search(query, topK);
+
+            retrievalDetail = HybridRetriever.consumeLastDetail();
 
             kbResults = hybridResults.stream()
 
@@ -609,7 +615,7 @@ public class KnowledgeSearchService {
 
         List<String> suggested = collectSuggestedQuestions(kbResults, null);
 
-        return new HybridSearchResult(kbResults, false, suggested, hybridResults);
+        return new HybridSearchResult(kbResults, false, suggested, hybridResults, retrievalDetail);
 
     }
 
@@ -661,7 +667,10 @@ public class KnowledgeSearchService {
 
             List<String> suggestedQuestions,
 
-            List<RetrievalResult> rawResults  // 可获取 kbId 等额外信息
+            List<RetrievalResult> rawResults,  // 可获取 kbId 等额外信息
+
+            /** 分阶段检索明细（bm25/vector 候选数、rrf k、精排前后条数等），供链路追踪展示 */
+            java.util.Map<String, Object> retrievalDetail
 
     ) {}
 

@@ -96,6 +96,16 @@ public class HybridRetriever {
      * @param topK  最终返回的结果数
      * @return 融合并排序后的检索结果
      */
+    /** 最近一次检索的分阶段明细（调用线程内），供链路追踪读取 */
+    private static final ThreadLocal<java.util.Map<String, Object>> LAST_DETAIL = new ThreadLocal<>();
+
+    /** 取出并清空本线程最近一次检索明细 */
+    public static java.util.Map<String, Object> consumeLastDetail() {
+        java.util.Map<String, Object> detail = LAST_DETAIL.get();
+        LAST_DETAIL.remove();
+        return detail == null ? java.util.Map.of() : detail;
+    }
+
     public List<RetrievalResult> search(String query, int topK) {
         return search(query, topK, filterDocType);
     }
@@ -145,7 +155,15 @@ public class HybridRetriever {
                 query, bm25Results.size(), vectorResults.size(), effectiveRrfK,
                 similarityThreshold, effectiveDocType == null ? "" : effectiveDocType, topK);
 
+        java.util.Map<String, Object> detail = new java.util.LinkedHashMap<>();
+        detail.put("bm25Candidates", bm25Results.size());
+        detail.put("vectorCandidates", vectorResults.size());
+        detail.put("rrfK", effectiveRrfK);
+        detail.put("threshold", similarityThreshold);
+
         if (bm25Results.isEmpty() && vectorResults.isEmpty()) {
+            detail.put("path", "empty");
+            LAST_DETAIL.set(detail);
             return List.of();
         }
         if (bm25Results.isEmpty()) {
@@ -155,9 +173,15 @@ public class HybridRetriever {
             // 同时把分数统一成 RRF 名次分（1/(k+rank)），保证三条路径的 score 量纲一致。
             List<RetrievalResult> vectorOnly = rankOnly(vectorResults, effectiveRrfK);
             applyKgBoost(query, vectorOnly);
+            detail.put("path", "vector_only");
             if (rerankEnabled && rerankService != null && vectorOnly.size() > 1) {
-                return rerankService.rerank(query, vectorOnly, topK);
+                detail.put("rerankIn", vectorOnly.size());
+                List<RetrievalResult> reranked = rerankService.rerank(query, vectorOnly, topK);
+                detail.put("rerankOut", reranked.size());
+                LAST_DETAIL.set(detail);
+                return reranked;
             }
+            LAST_DETAIL.set(detail);
             return vectorOnly.stream().limit(topK).toList();
         }
         if (vectorResults.isEmpty()) {
@@ -165,9 +189,15 @@ public class HybridRetriever {
                     bm25Results.size(), effectiveRrfK);
             List<RetrievalResult> bm25Only = rankOnly(bm25Results, effectiveRrfK);
             applyKgBoost(query, bm25Only);
+            detail.put("path", "bm25_only");
             if (rerankEnabled && rerankService != null && bm25Only.size() > 1) {
-                return rerankService.rerank(query, bm25Only, topK);
+                detail.put("rerankIn", bm25Only.size());
+                List<RetrievalResult> reranked = rerankService.rerank(query, bm25Only, topK);
+                detail.put("rerankOut", reranked.size());
+                LAST_DETAIL.set(detail);
+                return reranked;
             }
+            LAST_DETAIL.set(detail);
             return bm25Only.stream().limit(topK).toList();
         }
 
@@ -178,13 +208,23 @@ public class HybridRetriever {
                         + "rrfK={}, fused={}, topK={}",
                 bm25Results.size(), vectorResults.size(), effectiveRrfK, fused.size(), topK);
 
+        detail.put("path", "rrf");
+        detail.put("fused", fused.size());
+        detail.put("kgEnabled", kgQueryService != null && kgQueryService.isEnabled());
+
         // 图谱增强：实体链接 + 一跳扩散，给相关 kb 加权
         applyKgBoost(query, fused);
 
         // 精排：RRF 只用排名，缺少语义打分；cross-encoder 重排能显著提升 top-k 准确率
         if (rerankEnabled && rerankService != null && fused.size() > 1) {
-            return rerankService.rerank(query, fused, topK);
+            detail.put("rerankEnabled", true);
+            detail.put("rerankIn", fused.size());
+            List<RetrievalResult> reranked = rerankService.rerank(query, fused, topK);
+            detail.put("rerankOut", reranked.size());
+            LAST_DETAIL.set(detail);
+            return reranked;
         }
+        LAST_DETAIL.set(detail);
         return fused.stream().limit(topK).toList();
     }
     /** 图谱增强：实体链接 + 关系扩散后给候选加权（配置开关，默认关闭） */

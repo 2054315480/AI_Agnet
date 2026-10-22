@@ -221,15 +221,51 @@ def c_repo_checks(repo):
         check("P4-4 测试语料目录存在", False, "data/data/knowledge_base", "不存在")
 
 
+def c_experiments():
+    """P7-3 / P7-4 / P7-5 / P2-1 / P2-2 / P2-3：跑真实实验并断言。"""
+    r = http("POST", "/api/admin/experiments/idempotency", {"concurrency": 20, "rounds": 1}, timeout=120)
+    check("P7-3 幂等并发上传实验", bool(r.get("pass")) and r.get("finalRows") == 1,
+          "20 并发同 kb_id -> 表内 1 行",
+          "attempted=%s succeeded=%s rejected=%s rows=%s" % (
+              r.get("attempted"), r.get("succeeded"), r.get("rejected"), r.get("finalRows")))
+
+    r = http("POST", "/api/admin/experiments/retrieval-bench", {"samples": 10, "rounds": 2}, timeout=180)
+    ser = r.get("serial") or {}
+    par = r.get("parallel") or {}
+    check("P7-4 检索并行 vs 串行对比",
+          ser.get("p50Ms") is not None and par.get("p50Ms") is not None,
+          "输出 P50/P95 对照",
+          "serial P50=%s/P95=%s  parallel P50=%s/P95=%s  speedup=%s" % (
+              ser.get("p50Ms"), ser.get("p95Ms"), par.get("p50Ms"), par.get("p95Ms"), r.get("speedupP50")))
+
+    r = http("POST", "/api/admin/kg/ablation", {"sampleSize": 10}, timeout=300)
+    check("P7-5 图谱消融实验", (r.get("sampleCount") or 0) > 0,
+          "同候选池 kg 开/关指标差", "samples=%s entityLinked=%s" % (
+              r.get("sampleCount"), r.get("entityLinkedSamples")))
+
+    recent = http("GET", "/api/admin/trace/recent?limit=1")
+    tid = recent[0].get("trace_id") if isinstance(recent, list) and recent else None
+    if not tid:
+        check("P2-1 全链路证据视图", False, "存在 trace 记录", "无 trace")
+        return
+    d = http("GET", "/api/admin/trace/" + tid)
+    trace = d.get("trace") or {}
+    hops = d.get("hops") or []
+    check("P2-2 trace 落库 token 与费用", trace.get("total_tokens") is not None,
+          "total_tokens 非 null", "tokens=%s" % trace.get("total_tokens"))
+    check("P2-1 一条请求的全链路证据视图（9 跳）",
+          len(hops) == 9 and bool(trace.get("db_ref")),
+          "9 跳且第 8 跳含落库行 id",
+          "hops=%s db_ref=%s" % (len(hops), str(trace.get("db_ref"))[:60]))
+    md = http("GET", "/api/admin/trace/%s/export?format=md" % tid, raw=True)
+    check("P2-3 证据快照导出（带 traceId 水印）",
+          isinstance(md, str) and tid in md and "证据快照" in md,
+          "md 含 traceId 水印", "len=%s" % (len(md) if isinstance(md, str) else 0))
+
+
 def c_manual():
     for item, exp in [("P11-1 浏览器业务请求带 Authorization（用 DevTools/代理核对）", "每个 /api/* 请求 auth=YES"),
-                      ("P11-1b 对话分析页会话数与接口一致（192 级别，不是 0）", "非 0 且与接口一致"),
-                      ("P2-1 一条请求的全链路证据视图（9 跳，含落库行 id）", "页面可点开每一跳"),
-                      ("P2-2 trace 落库 token 与费用", "total_tokens 非 null"),
-                      ("P2-3 证据快照导出（带 traceId 水印）", "可导出 md/pdf"),
-                      ("P7-3 幂等并发上传实验", "10~50 并发同 kb_id -> 表内 1 行"),
-                      ("P7-4 检索并行 vs 串行对比", "输出 P50/P95 对照"),
-                      ("P7-5 图谱消融实验", "kg 开/关指标差")]:
+                      ("P11-1b 对话分析页会话数与接口一致", "非 0 且与接口一致")]:
         check(item, None, exp, "人工核对", level="MANUAL")
 
 
@@ -253,6 +289,7 @@ def main():
     c_resilience()
     c_eval_history()
     c_repo_checks(args.repo)
+    c_experiments()
     c_manual()
     print("-" * 100)
     fails = [r for r in RESULTS if r[0] == "FAIL"]

@@ -51,20 +51,153 @@ public class TraceController {
     public ResponseEntity<?> detail(@PathVariable String traceId) {
         Map<String, Object> out = new LinkedHashMap<>();
         try {
+            // jsonb 列用 ::text 取出，避免 JDBC 返回 PGobject 导致前端拿到 {type,value}
             List<Map<String, Object>> traces = jdbcTemplate.queryForList(
-                    "SELECT * FROM agent_trace WHERE trace_id = ?", traceId);
+                    "SELECT trace_id, session_id, user_query, rewritten, intent, status, total_ms, " +
+                    "total_tokens, degraded_reason, created_at, " +
+                    "retrieval_detail::text AS retrieval_detail, db_ref::text AS db_ref " +
+                    "FROM agent_trace WHERE trace_id = ?", traceId);
             if (traces.isEmpty()) {
                 return ResponseEntity.status(404).body(Map.of("error", "trace 不存在: " + traceId));
             }
-            out.put("trace", traces.get(0));
-            out.put("spans", jdbcTemplate.queryForList(
+            Map<String, Object> trace = traces.get(0);
+            List<Map<String, Object>> spans = jdbcTemplate.queryForList(
                     "SELECT span_name, start_ms, duration_ms, status, attributes " +
-                    "FROM trace_span WHERE trace_id = ? ORDER BY start_ms", traceId));
+                    "FROM trace_span WHERE trace_id = ? ORDER BY start_ms", traceId);
+            out.put("trace", trace);
+            out.put("spans", spans);
+            // 9 跳链路：把 trace / retrieval_detail / db_ref / spans 组装成前端可直接渲染的结构
+            out.put("hops", buildHops(trace, spans));
             out.put("costEstimate", costEstimator.estimateForTrace(traceId));
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
         }
         return ResponseEntity.ok(out);
+    }
+
+    /**
+     * 组装 9 跳链路。
+     *
+     * 数据来源：agent_trace（query/rewritten/intent/tokens/retrieval_detail/db_ref）+ trace_span（耗时）。
+     * 检索内部的 BM25/向量/RRF/精排 是并行执行、没有单独 span，这里如实标注 durationMs=0，
+     * 并把整段检索耗时放在 retrieveSpanMs 上，不做假拆分。
+     */
+    private List<Map<String, Object>> buildHops(Map<String, Object> trace,
+                                                List<Map<String, Object>> spans) {
+        List<Map<String, Object>> hops = new java.util.ArrayList<>();
+        Map<String, Object> detail = asMap(trace.get("retrieval_detail"));
+        Map<String, Object> dbRef = asMap(trace.get("db_ref"));
+
+        long retrieveMs = spanMs(spans, "retrieve");
+        long llmMs = spanMs(spans, "llm");
+        long intentMs = spanMs(spans, "intent");
+
+        hops.add(hop(1, "用户提问", "session=" + trace.get("session_id"),
+                intentMs, str(trace.get("user_query")),
+                mapOf("sessionId", trace.get("session_id"), "query", trace.get("user_query"))));
+
+        hops.add(hop(2, "查询改写",
+                sameOrChanged(trace.get("user_query"), trace.get("rewritten")),
+                0, str(trace.get("rewritten")),
+                mapOf("original", trace.get("user_query"), "rewritten", trace.get("rewritten"))));
+
+        hops.add(hop(3, "BM25 检索", "候选 " + num(detail.get("bm25Candidates")) + " 条",
+                0, "", mapOf("candidates", detail.get("bm25Candidates"), "path", detail.get("path"))));
+
+        hops.add(hop(4, "向量检索",
+                "候选 " + num(detail.get("vectorCandidates")) + " 条，阈值 " + num(detail.get("threshold")),
+                0, "", mapOf("candidates", detail.get("vectorCandidates"), "threshold", detail.get("threshold"))));
+
+        hops.add(hop(5, "RRF 融合",
+                "k=" + num(detail.get("rrfK")) + "，融合 " + num(detail.get("fused")) + " 条",
+                retrieveMs, "", mapOf("rrfK", detail.get("rrfK"), "fused", detail.get("fused"),
+                        "kgEnabled", detail.get("kgEnabled"), "retrieveSpanMs", retrieveMs)));
+
+        hops.add(hop(6, "精排",
+                num(detail.get("rerankIn")) + " → " + num(detail.get("rerankOut")),
+                0, "", mapOf("in", detail.get("rerankIn"), "out", detail.get("rerankOut"))));
+
+        hops.add(hop(7, "LLM 调用",
+                "total " + num(trace.get("total_tokens")) + " tokens",
+                llmMs, "", mapOf("model", "qwen-plus", "totalTokens", trace.get("total_tokens"),
+                        "degraded", trace.get("degraded_reason"))));
+
+        hops.add(hop(8, "落库",
+                dbRef.isEmpty() ? "未记录" : "messages id=" + dbRef.get("assistantMessageId"),
+                0, "", dbRef));
+
+        hops.add(hop(9, "响应",
+                str(trace.get("status")) + "，" + spans.size() + " 个 span",
+                0, "", mapOf("status", trace.get("status"), "spanCount", spans.size(),
+                        "totalMs", trace.get("total_ms"))));
+        return hops;
+    }
+
+    private Map<String, Object> hop(int seq, String name, String detail, long durationMs,
+                                    String content, Map<String, Object> data) {
+        Map<String, Object> h = new LinkedHashMap<>();
+        h.put("seq", seq);
+        h.put("name", name);
+        h.put("detail", detail);
+        h.put("durationMs", durationMs);
+        h.put("content", content);
+        h.put("data", data);
+        h.put("status", "ok");
+        return h;
+    }
+
+    private static Map<String, Object> mapOf(Object... kv) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < kv.length; i += 2) {
+            m.put(String.valueOf(kv[i]), kv[i + 1]);
+        }
+        return m;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object v) {
+        if (v instanceof Map<?, ?> m) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            m.forEach((k, val) -> out.put(String.valueOf(k), val));
+            return out;
+        }
+        if (v instanceof String s && !s.isBlank()) {
+            try {
+                return new com.fasterxml.jackson.databind.ObjectMapper().readValue(s, Map.class);
+            } catch (Exception ignore) {
+                return Map.of();
+            }
+        }
+        return Map.of();
+    }
+
+    private static long spanMs(List<Map<String, Object>> spans, String name) {
+        for (Map<String, Object> sp : spans) {
+            if (name.equals(String.valueOf(sp.get("span_name")))) {
+                Object d = sp.get("duration_ms");
+                if (d instanceof Number n) {
+                    return n.longValue();
+                }
+            }
+        }
+        return 0;
+    }
+
+    private static String sameOrChanged(Object a, Object b) {
+        String x = str(a);
+        String y = str(b);
+        if (y.isEmpty() || x.equals(y)) {
+            return "未改写";
+        }
+        return "已改写";
+    }
+
+    private static String num(Object v) {
+        return v == null ? "-" : String.valueOf(v);
+    }
+
+    private static String str(Object v) {
+        return v == null ? "" : String.valueOf(v);
     }
 
     /** 把一条 trace 的链路导出为 Markdown 证据快照。 */

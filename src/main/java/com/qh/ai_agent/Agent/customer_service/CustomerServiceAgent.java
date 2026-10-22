@@ -85,6 +85,11 @@ public class CustomerServiceAgent extends ToolCallAgent {
     private TraceCollector.SpanListener spanListener;
 
     /** Controller 在 runStream 之前调用，把 trace 交给 Agent 在异步线程里重新绑定 */
+    /** 供 Controller 在落库后回填 agent_trace.db_ref */
+    public TraceContext getTraceContext() {
+        return traceContext;
+    }
+
     public void setTraceContext(TraceContext ctx, TraceCollector.SpanListener listener) {
         this.traceContext = ctx;
         this.spanListener = listener;
@@ -331,6 +336,11 @@ public class CustomerServiceAgent extends ToolCallAgent {
             retrieveAttrs.put("matchType", actResult != null && actResult.contains("faq_direct") ? "faq_direct" : "hybrid_search");
             TraceCollector.end(retrieveSpan, retrieveAttrs);
             TraceCollector.metric("retrievalDone", true);
+            // 分阶段检索明细（bm25/vector/rrf/精排）写入 trace，供 9 跳链路展示
+            Object retrievalDetail = extractJsonField(actResult, "retrievalDetail");
+            if (retrievalDetail != null) {
+                TraceCollector.metric("retrievalDetail", retrievalDetail);
+            }
             // 命中判定用绝对相关性阈值；OUT_OF_SCOPE 时阈值加倍，
             // 避免"1+1等于几"这类域外问题也引用到一篇不相关的文档
             boolean knowledgeHit = hasKnowledgeResults(actResult, intentResult.getIntent());
@@ -727,6 +737,30 @@ public class CustomerServiceAgent extends ToolCallAgent {
      * 只判断有没有结果，不判断分数高低：RRF 融合分的量级只有 0.09 左右，
      * 用 0.3 之类的分数阈值会把正常的融合命中误判成"知识库没有"。
      */
+    /** 从工具返回的 JSON 里取一个字段（解析失败返回 null） */
+    private Object extractJsonField(String json, String field) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            // 工具结果前面可能带 "工具xxx 返回结果" 前缀，先截取到第一个 { 再解析
+            int start = json.indexOf('{');
+            if (start < 0) {
+                return null;
+            }
+            String pureJson = json.substring(start);
+            com.fasterxml.jackson.databind.JsonNode node =
+                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(pureJson);
+            com.fasterxml.jackson.databind.JsonNode target = node.get(field);
+            if (target == null || target.isNull()) {
+                return null;
+            }
+            return new com.fasterxml.jackson.databind.ObjectMapper().convertValue(target, java.util.Map.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** 统计 results 数组里的条目数（粗略但足够用于链路展示） */
     private int countJsonArrayItems(String actResult) {
         if (actResult == null) {
