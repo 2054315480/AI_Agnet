@@ -97,14 +97,17 @@ public class PgVectorSearchDao {
         }
         sql.append(" ORDER BY embedding <=> ?::vector\n LIMIT ?");
 
+        // 注意：SQL 里向量字面量出现 3 次（SELECT / WHERE / ORDER BY），
+        // 参数必须逐一对应，否则会出现 "No value specified for parameter 5" 并静默降级。
         List<Object> params = new ArrayList<>();
-        params.add(vectorLiteral);
-        params.add(similarityThreshold);
+        params.add(vectorLiteral);          // SELECT 1 - (embedding <=> ?::vector)
+        params.add(vectorLiteral);          // WHERE 1 - (embedding <=> ?::vector)
+        params.add(similarityThreshold);    // WHERE ... >= ?
         if (hasDocType) {
-            params.add(docType.trim());
+            params.add(docType.trim());     // AND metadata->>'doc_type' = ?
         }
-        params.add(vectorLiteral);
-        params.add(topK);
+        params.add(vectorLiteral);          // ORDER BY embedding <=> ?::vector
+        params.add(topK);                   // LIMIT ?
 
         RowMapper<RetrievalResult> rowMapper = (rs, rowNum) -> RetrievalResult.builder()
                 .kbId(emptyToNull(rs.getString("kb_id")))

@@ -151,18 +151,23 @@ public class HybridRetriever {
         if (bm25Results.isEmpty()) {
             log.debug("[HybridRetriever] 仅向量路有结果，跳过 RRF: vector={}, k={}",
                     vectorResults.size(), effectiveRrfK);
-            if (rerankEnabled && rerankService != null && vectorResults.size() > 1) {
-                return rerankService.rerank(query, vectorResults, topK);
+            // 单路命中时同样要做图谱增强，否则 BM25 没命中就完全失去图谱加权
+            List<RetrievalResult> vectorOnly = new ArrayList<>(vectorResults);
+            applyKgBoost(query, vectorOnly);
+            if (rerankEnabled && rerankService != null && vectorOnly.size() > 1) {
+                return rerankService.rerank(query, vectorOnly, topK);
             }
-            return vectorResults.stream().limit(topK).toList();
+            return vectorOnly.stream().limit(topK).toList();
         }
         if (vectorResults.isEmpty()) {
             log.debug("[HybridRetriever] 仅 BM25 路有结果，跳过 RRF: bm25={}, k={}",
                     bm25Results.size(), effectiveRrfK);
-            if (rerankEnabled && rerankService != null && bm25Results.size() > 1) {
-                return rerankService.rerank(query, bm25Results, topK);
+            List<RetrievalResult> bm25Only = new ArrayList<>(bm25Results);
+            applyKgBoost(query, bm25Only);
+            if (rerankEnabled && rerankService != null && bm25Only.size() > 1) {
+                return rerankService.rerank(query, bm25Only, topK);
             }
-            return bm25Results.stream().limit(topK).toList();
+            return bm25Only.stream().limit(topK).toList();
         }
 
         // RRF 融合，k 由配置注入并写入日志
